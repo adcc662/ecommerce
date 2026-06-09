@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,8 +29,9 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderResponse> getOrderById(@PathVariable Long id) {
-        return ResponseEntity.ok(orderService.getOrderById(id));
+    public ResponseEntity<OrderResponse> getOrderById(@PathVariable Long id, Authentication authentication) {
+        String userEmail = authentication.getName();
+        return ResponseEntity.ok(orderService.getOrderById(id, userEmail));
     }
 
     @GetMapping("/my-orders")
@@ -39,6 +41,7 @@ public class OrderController {
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<OrderResponse> updateOrderStatus(
             @PathVariable Long id,
             @RequestParam String status) {

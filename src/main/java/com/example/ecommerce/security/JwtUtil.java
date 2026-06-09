@@ -24,23 +24,6 @@ public class JwtUtil {
     @Value("${jwt.expiration}")
     private Long expiration;
 
-    private static volatile JwtUtil instance;
-
-    private JwtUtil() {
-        // Private constructor for Singleton
-    }
-
-    public static JwtUtil getInstance() {
-        if (instance == null) {
-            synchronized (JwtUtil.class) {
-                if (instance == null) {
-                    instance = new JwtUtil();
-                }
-            }
-        }
-        return instance;
-    }
-
     private SecretKey getSigningKey() {
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);

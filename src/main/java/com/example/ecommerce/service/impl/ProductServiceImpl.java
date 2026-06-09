@@ -28,22 +28,9 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final SubcategoryRepository subcategoryRepository;
 
-    private static volatile ProductServiceImpl instance;
-
-    public static ProductServiceImpl getInstance(ProductRepository productRepository,
-                                                  SubcategoryRepository subcategoryRepository) {
-        if (instance == null) {
-            synchronized (ProductServiceImpl.class) {
-                if (instance == null) {
-                    instance = new ProductServiceImpl(productRepository, subcategoryRepository);
-                }
-            }
-        }
-        return instance;
-    }
-
     @Override
     @Transactional
+    @CacheEvict(value = "products", allEntries = true)
     public ProductResponse createProduct(ProductRequest request) {
         Subcategory subcategory = subcategoryRepository.findById(request.getSubcategoryId())
                 .orElseThrow(() -> new ResourceNotFoundException("Subcategory not found"));
@@ -68,6 +55,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "products", allEntries = true)
     public ProductResponse updateProduct(Long id, ProductRequest request) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -126,7 +114,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable(value = "products", key = "#id")
     public ProductResponse getProductById(Long id) {
-        Product product = productRepository.findById(id)
+        Product product = productRepository.findByIdAndIsActiveTrue(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
         return mapToResponse(product);
     }
@@ -134,7 +122,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable(value = "products", key = "#slug")
     public ProductResponse getProductBySlug(String slug) {
-        Product product = productRepository.findBySlug(slug)
+        Product product = productRepository.findBySlugAndIsActiveTrue(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
         return mapToResponse(product);
     }
@@ -163,7 +151,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable(value = "products", key = "'active-page-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     public Page<ProductResponse> getActiveProducts(Pageable pageable) {
-        Page<Product> products = productRepository.findAll(pageable);
+        Page<Product> products = productRepository.findByIsActiveTrue(pageable);
         return products.map(this::mapToResponse);
     }
 
@@ -177,7 +165,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable(value = "products", key = "'search-' + #keyword + '-page-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     public Page<ProductResponse> searchProductsByName(String keyword, Pageable pageable) {
-        Page<Product> products = productRepository.findAll(pageable);
+        Page<Product> products = productRepository.searchByName(keyword, pageable);
         return products.map(this::mapToResponse);
     }
 

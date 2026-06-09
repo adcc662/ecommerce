@@ -1,5 +1,6 @@
 package com.example.ecommerce.models.entity;
 
+import com.example.ecommerce.models.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -42,6 +43,11 @@ public class User {
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private UserRole role = UserRole.USER;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

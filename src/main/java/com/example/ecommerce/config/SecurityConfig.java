@@ -19,6 +19,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import static org.springframework.http.HttpMethod.*;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -34,6 +36,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/public/**").permitAll()
+                        .requestMatchers(GET, "/api/products").hasRole("ADMIN")
+                        .requestMatchers(POST, "/api/products").hasRole("ADMIN")
+                        .requestMatchers(PUT, "/api/products/*").hasRole("ADMIN")
+                        .requestMatchers(PATCH, "/api/products/*").hasRole("ADMIN")
+                        .requestMatchers(DELETE, "/api/products/*").hasRole("ADMIN")
+                        .requestMatchers(PATCH, "/api/orders/*/status").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

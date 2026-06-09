@@ -335,12 +335,14 @@ spring.data.redis.host=localhost
 spring.data.redis.port=6379
 
 # JWT
-jwt.secret=your-secret-key-minimum-256-bits-long
-jwt.expiration=86400000
+jwt.secret=${JWT_SECRET}
+jwt.expiration=${JWT_EXPIRATION_MS:86400000}
 
 # Server
 server.port=8080
 ```
+
+Set `JWT_SECRET` in your local environment to a strong HS256-compatible secret before running the application. Registered users default to the `USER` role; product mutations and order status updates require `ADMIN`.
 
 ### Docker Compose Services
 

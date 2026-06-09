@@ -1,6 +1,7 @@
 package com.example.ecommerce.service.impl;
 
 import com.example.ecommerce.exception.ResourceNotFoundException;
+import com.example.ecommerce.models.dto.response.CartItemResponse;
 import com.example.ecommerce.models.entity.Product;
 import com.example.ecommerce.models.entity.ShoppingCart;
 import com.example.ecommerce.models.entity.User;
@@ -12,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -22,24 +25,13 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
 
-    private static volatile ShoppingCartServiceImpl instance;
-
-    public static ShoppingCartServiceImpl getInstance(ShoppingCartRepository shoppingCartRepository,
-                                                       UserRepository userRepository,
-                                                       ProductRepository productRepository) {
-        if (instance == null) {
-            synchronized (ShoppingCartServiceImpl.class) {
-                if (instance == null) {
-                    instance = new ShoppingCartServiceImpl(shoppingCartRepository, userRepository, productRepository);
-                }
-            }
-        }
-        return instance;
-    }
-
     @Override
     @Transactional
-    public ShoppingCart addToCart(String userEmail, Long productId, Integer quantity) {
+    public CartItemResponse addToCart(String userEmail, Long productId, Integer quantity) {
+        if (quantity == null || quantity < 1) {
+            throw new IllegalArgumentException("Quantity must be at least 1");
+        }
+
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -51,7 +43,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
         if (existingCart != null) {
             existingCart.setQuantity(existingCart.getQuantity() + quantity);
-            return shoppingCartRepository.save(existingCart);
+            return mapToResponse(shoppingCartRepository.save(existingCart));
         }
 
         ShoppingCart cart = ShoppingCart.builder()
@@ -60,12 +52,16 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
                 .quantity(quantity)
                 .build();
 
-        return shoppingCartRepository.save(cart);
+        return mapToResponse(shoppingCartRepository.save(cart));
     }
 
     @Override
     @Transactional
-    public ShoppingCart updateCartItem(String userEmail, Long productId, Integer quantity) {
+    public CartItemResponse updateCartItem(String userEmail, Long productId, Integer quantity) {
+        if (quantity == null || quantity < 1) {
+            throw new IllegalArgumentException("Quantity must be at least 1");
+        }
+
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -73,7 +69,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cart item not found"));
 
         cart.setQuantity(quantity);
-        return shoppingCartRepository.save(cart);
+        return mapToResponse(shoppingCartRepository.save(cart));
     }
 
     @Override
@@ -89,11 +85,14 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     }
 
     @Override
-    public List<ShoppingCart> getUserCart(String userEmail) {
+    @Transactional(readOnly = true)
+    public List<CartItemResponse> getUserCart(String userEmail) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        return shoppingCartRepository.findByUserId(user.getId());
+        return shoppingCartRepository.findByUserId(user.getId()).stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -103,5 +102,27 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         shoppingCartRepository.deleteByUserId(user.getId());
+    }
+
+    private CartItemResponse mapToResponse(ShoppingCart cart) {
+        Product product = cart.getProduct();
+        BigDecimal price = product.getDiscountPrice() != null ? product.getDiscountPrice() : product.getPrice();
+        String image = product.getImages().stream()
+                .findFirst()
+                .map(productImage -> productImage.getImageUrl())
+                .orElse(null);
+
+        return CartItemResponse.builder()
+                .cartId(cart.getId())
+                .productId(product.getId())
+                .productName(product.getName())
+                .productPrice(price)
+                .productImage(image)
+                .productSlug(product.getSlug())
+                .quantity(cart.getQuantity())
+                .subtotal(price.multiply(BigDecimal.valueOf(cart.getQuantity())))
+                .createdAt(cart.getCreatedAt())
+                .updatedAt(cart.getUpdatedAt())
+                .build();
     }
 }

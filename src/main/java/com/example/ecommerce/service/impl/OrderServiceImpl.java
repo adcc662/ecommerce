@@ -27,33 +27,23 @@ public class OrderServiceImpl implements OrderService {
     private final AddressRepository addressRepository;
     private final OrderItemRepository orderItemRepository;
 
-    private static volatile OrderServiceImpl instance;
-
-    public static OrderServiceImpl getInstance(OrderRepository orderRepository, UserRepository userRepository,
-                                                ProductRepository productRepository, AddressRepository addressRepository,
-                                                OrderItemRepository orderItemRepository) {
-        if (instance == null) {
-            synchronized (OrderServiceImpl.class) {
-                if (instance == null) {
-                    instance = new OrderServiceImpl(orderRepository, userRepository, productRepository,
-                            addressRepository, orderItemRepository);
-                }
-            }
-        }
-        return instance;
-    }
-
     @Override
     @Transactional
     public OrderResponse createOrder(OrderRequest request, String userEmail) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Address shippingAddress = addressRepository.findById(request.getShippingAddressId())
+        Address shippingAddress = addressRepository.findByIdAndUserId(request.getShippingAddressId(), user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shipping address not found"));
 
-        Address billingAddress = addressRepository.findById(request.getBillingAddressId())
+        Address billingAddress = addressRepository.findByIdAndUserId(request.getBillingAddressId(), user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Billing address not found"));
+
+        for (var itemRequest : request.getItems()) {
+            if (itemRequest == null || itemRequest.getQuantity() == null || itemRequest.getQuantity() < 1) {
+                throw new IllegalArgumentException("Quantity must be at least 1");
+            }
+        }
 
         BigDecimal subtotal = BigDecimal.ZERO;
 
@@ -72,8 +62,19 @@ public class OrderServiceImpl implements OrderService {
         order = orderRepository.save(order);
 
         for (var itemRequest : request.getItems()) {
-            Product product = productRepository.findById(itemRequest.getProductId())
+            Product product = productRepository.findByIdForUpdate(itemRequest.getProductId())
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+
+            if (!Boolean.TRUE.equals(product.getIsActive())) {
+                throw new ResourceNotFoundException("Product not found");
+            }
+
+            if (product.getStockQuantity() < itemRequest.getQuantity()) {
+                throw new IllegalArgumentException("Insufficient stock for product: " + product.getName());
+            }
+
+            product.setStockQuantity(product.getStockQuantity() - itemRequest.getQuantity());
+            productRepository.save(product);
 
             BigDecimal unitPrice = product.getDiscountPrice() != null ? product.getDiscountPrice() : product.getPrice();
             BigDecimal itemSubtotal = unitPrice.multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
@@ -99,8 +100,11 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public OrderResponse getOrderById(Long id) {
-        Order order = orderRepository.findById(id)
+    public OrderResponse getOrderById(Long id, String userEmail) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Order order = orderRepository.findByIdAndUserId(id, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
         return mapToResponse(order);
     }

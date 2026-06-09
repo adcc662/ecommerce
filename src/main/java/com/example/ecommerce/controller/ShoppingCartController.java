@@ -1,6 +1,6 @@
 package com.example.ecommerce.controller;
 
-import com.example.ecommerce.models.entity.ShoppingCart;
+import com.example.ecommerce.models.dto.response.CartItemResponse;
 import com.example.ecommerce.service.ShoppingCartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -18,7 +18,7 @@ public class ShoppingCartController {
     private final ShoppingCartService shoppingCartService;
 
     @PostMapping("/add")
-    public ResponseEntity<ShoppingCart> addToCart(
+    public ResponseEntity<CartItemResponse> addToCart(
             @RequestParam Long productId,
             @RequestParam Integer quantity,
             Authentication authentication) {
@@ -28,7 +28,7 @@ public class ShoppingCartController {
     }
 
     @PutMapping("/update")
-    public ResponseEntity<ShoppingCart> updateCartItem(
+    public ResponseEntity<CartItemResponse> updateCartItem(
             @RequestParam Long productId,
             @RequestParam Integer quantity,
             Authentication authentication) {
@@ -46,7 +46,7 @@ public class ShoppingCartController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ShoppingCart>> getCart(Authentication authentication) {
+    public ResponseEntity<List<CartItemResponse>> getCart(Authentication authentication) {
         String userEmail = authentication.getName();
         return ResponseEntity.ok(shoppingCartService.getUserCart(userEmail));
     }

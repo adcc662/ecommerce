@@ -1,5 +1,6 @@
 package com.example.ecommerce.models.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -22,5 +23,6 @@ public class OrderRequest {
     private Long billingAddressId;
 
     @NotEmpty(message = "Order items cannot be empty")
+    @Valid
     private List<OrderItemRequest> items;
 }

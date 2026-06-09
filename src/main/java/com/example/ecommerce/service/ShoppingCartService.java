@@ -1,13 +1,13 @@
 package com.example.ecommerce.service;
 
-import com.example.ecommerce.models.entity.ShoppingCart;
+import com.example.ecommerce.models.dto.response.CartItemResponse;
 
 import java.util.List;
 
 public interface ShoppingCartService {
-    ShoppingCart addToCart(String userEmail, Long productId, Integer quantity);
-    ShoppingCart updateCartItem(String userEmail, Long productId, Integer quantity);
+    CartItemResponse addToCart(String userEmail, Long productId, Integer quantity);
+    CartItemResponse updateCartItem(String userEmail, Long productId, Integer quantity);
     void removeFromCart(String userEmail, Long productId);
-    List<ShoppingCart> getUserCart(String userEmail);
+    List<CartItemResponse> getUserCart(String userEmail);
     void clearCart(String userEmail);
 }

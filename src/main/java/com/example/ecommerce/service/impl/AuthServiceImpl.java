@@ -4,6 +4,7 @@ import com.example.ecommerce.models.dto.request.LoginRequest;
 import com.example.ecommerce.models.dto.request.RegisterRequest;
 import com.example.ecommerce.models.dto.response.AuthResponse;
 import com.example.ecommerce.models.entity.User;
+import com.example.ecommerce.models.enums.UserRole;
 import com.example.ecommerce.repository.UserRepository;
 import com.example.ecommerce.security.JwtUtil;
 import com.example.ecommerce.service.AuthService;
@@ -22,20 +23,6 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
 
-    private static volatile AuthServiceImpl instance;
-
-    public static AuthServiceImpl getInstance(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                                               JwtUtil jwtUtil, AuthenticationManager authenticationManager) {
-        if (instance == null) {
-            synchronized (AuthServiceImpl.class) {
-                if (instance == null) {
-                    instance = new AuthServiceImpl(userRepository, passwordEncoder, jwtUtil, authenticationManager);
-                }
-            }
-        }
-        return instance;
-    }
-
     @Override
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -49,6 +36,7 @@ public class AuthServiceImpl implements AuthService {
                 .lastName(request.getLastName())
                 .phone(request.getPhone())
                 .isActive(true)
+                .role(UserRole.USER)
                 .build();
 
         userRepository.save(user);
