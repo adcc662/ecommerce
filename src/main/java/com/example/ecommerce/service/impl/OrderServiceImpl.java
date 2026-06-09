@@ -125,7 +125,20 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
-        order.setOrderStatus(OrderStatus.valueOf(status.toUpperCase()));
+        OrderStatus newStatus;
+        try {
+            newStatus = OrderStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid order status: " + status);
+        }
+
+        OrderStatus currentStatus = order.getOrderStatus();
+        if (!currentStatus.canTransitionTo(newStatus)) {
+            throw new IllegalArgumentException(
+                    "Invalid status transition from " + currentStatus + " to " + newStatus);
+        }
+
+        order.setOrderStatus(newStatus);
         orderRepository.save(order);
 
         return mapToResponse(order);

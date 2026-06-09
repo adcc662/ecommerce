@@ -16,13 +16,27 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/products")
 @RequiredArgsConstructor
 public class ProductController {
 
+    private static final Set<String> ALLOWED_SORT_FIELDS =
+            Set.of("id", "name", "price", "stockQuantity", "createdAt");
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final ProductService productService;
+
+    private Pageable buildPageable(int page, int size, String sortBy, String sortDir) {
+        if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
+            throw new IllegalArgumentException("Invalid sort field: " + sortBy);
+        }
+        int cappedSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        Sort sort = sortDir.equalsIgnoreCase("DESC") ? Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
+        return PageRequest.of(Math.max(page, 0), cappedSize, sort);
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -66,9 +80,7 @@ public class ProductController {
             @RequestParam(defaultValue = "ASC") String sortDir) {
 
         if (paginated != null && paginated) {
-            Sort sort = sortDir.equalsIgnoreCase("DESC") ? Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
-            Pageable pageable = PageRequest.of(page, size, sort);
-            Page<ProductResponse> products = productService.getAllProducts(pageable);
+            Page<ProductResponse> products = productService.getAllProducts(buildPageable(page, size, sortBy, sortDir));
             return ResponseEntity.ok(products);
         }
 
@@ -85,9 +97,7 @@ public class ProductController {
             @RequestParam(defaultValue = "ASC") String sortDir) {
 
         if (paginated != null && paginated) {
-            Sort sort = sortDir.equalsIgnoreCase("DESC") ? Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
-            Pageable pageable = PageRequest.of(page, size, sort);
-            Page<ProductResponse> products = productService.getActiveProducts(pageable);
+            Page<ProductResponse> products = productService.getActiveProducts(buildPageable(page, size, sortBy, sortDir));
             return ResponseEntity.ok(products);
         }
 
@@ -105,9 +115,7 @@ public class ProductController {
             @RequestParam(defaultValue = "ASC") String sortDir) {
 
         if (paginated != null && paginated) {
-            Sort sort = sortDir.equalsIgnoreCase("DESC") ? Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
-            Pageable pageable = PageRequest.of(page, size, sort);
-            Page<ProductResponse> products = productService.searchProductsByName(keyword, pageable);
+            Page<ProductResponse> products = productService.searchProductsByName(keyword, buildPageable(page, size, sortBy, sortDir));
             return ResponseEntity.ok(products);
         }
 

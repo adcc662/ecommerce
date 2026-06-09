@@ -1,5 +1,6 @@
 package com.example.ecommerce.service.impl;
 
+import com.example.ecommerce.exception.EmailAlreadyExistsException;
 import com.example.ecommerce.models.dto.request.LoginRequest;
 import com.example.ecommerce.models.dto.request.RegisterRequest;
 import com.example.ecommerce.models.dto.response.AuthResponse;
@@ -26,7 +27,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already exists");
+            throw new EmailAlreadyExistsException("Email already exists");
         }
 
         User user = User.builder()

@@ -136,6 +136,59 @@ class OrderServiceImplTest {
         assertCreateOrderRejectsInvalidQuantity(-1);
     }
 
+    @Test
+    void updateOrderStatusAllowsValidTransition() {
+        Order order = Order.builder()
+                .id(99L)
+                .orderNumber("ORD-123")
+                .orderStatus(OrderStatus.PENDING)
+                .subtotal(BigDecimal.TEN)
+                .taxAmount(BigDecimal.ZERO)
+                .shippingCost(BigDecimal.ZERO)
+                .totalAmount(BigDecimal.TEN)
+                .build();
+
+        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
+
+        orderService.updateOrderStatus(99L, "processing");
+
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.PROCESSING);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void updateOrderStatusRejectsInvalidTransition() {
+        Order order = Order.builder()
+                .id(99L)
+                .orderStatus(OrderStatus.DELIVERED)
+                .build();
+
+        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(99L, "PENDING"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid status transition from DELIVERED to PENDING");
+
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    void updateOrderStatusRejectsUnknownStatusWithCleanMessage() {
+        Order order = Order.builder()
+                .id(99L)
+                .orderStatus(OrderStatus.PENDING)
+                .build();
+
+        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(99L, "NOT_A_STATUS"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid order status: NOT_A_STATUS");
+
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
     private void assertCreateOrderRejectsInvalidQuantity(Integer quantity) {
         User user = User.builder().id(10L).email("user@example.com").build();
         Address address = Address.builder().id(1L).user(user).build();

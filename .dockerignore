@@ -1,0 +1,9 @@
+.git
+.gradle
+build
+.env
+.idea
+.vscode
+.antigravitycli
+*.md
+compose.yaml
