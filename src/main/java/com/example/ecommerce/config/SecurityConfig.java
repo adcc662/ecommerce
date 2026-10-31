@@ -19,7 +19,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -48,7 +50,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/public/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers(GET, "/api/products").hasRole("ADMIN")
+                        .requestMatchers(GET, "/api/products/*", "/api/products/slug/*").permitAll()
+                        .requestMatchers(GET, "/api/categories", "/api/categories/**").permitAll()
+                        .requestMatchers(POST, "/api/categories", "/api/categories/**").hasRole("ADMIN")
                         .requestMatchers(POST, "/api/products").hasRole("ADMIN")
                         .requestMatchers(PUT, "/api/products/*").hasRole("ADMIN")
                         .requestMatchers(PATCH, "/api/products/*").hasRole("ADMIN")
@@ -58,6 +64,9 @@ public class SecurityConfig {
                 )
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
