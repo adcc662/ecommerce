@@ -1,5 +1,5 @@
 # Build stage
-FROM eclipse-temurin:21-jdk AS builder
+FROM eclipse-temurin:25-jdk AS builder
 WORKDIR /app
 COPY gradlew build.gradle settings.gradle ./
 COPY gradle gradle
@@ -8,7 +8,7 @@ COPY src src
 RUN ./gradlew bootJar --no-daemon
 
 # Runtime stage
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 RUN groupadd --system spring && useradd --system --gid spring spring
 USER spring:spring
 WORKDIR /app

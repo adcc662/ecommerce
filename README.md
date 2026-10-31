@@ -1,6 +1,6 @@
 # E-Commerce REST API
 
-A comprehensive e-commerce REST API built with Spring Boot 3.5, featuring JWT authentication, Redis caching, and a fully normalized PostgreSQL database.
+A comprehensive e-commerce REST API built with Spring Boot 4.1, featuring JWT authentication, Redis caching, and a fully normalized PostgreSQL database.
 
 ## Features
 
@@ -15,20 +15,20 @@ A comprehensive e-commerce REST API built with Spring Boot 3.5, featuring JWT au
 
 ## Tech Stack
 
-- **Java 21**
-- **Spring Boot 3.5.3**
+- **Java 25** (LTS)
+- **Spring Boot 4.1.2**
 - **PostgreSQL** - Primary database
 - **Redis** - Caching layer
 - **Flyway** - Database migrations
 - **JWT** - Authentication
 - **Lombok** - Boilerplate reduction
-- **Gradle** - Build tool
+- **Gradle 9.8** - Build tool (wrapper included)
 
 ## Quick Start
 
 ### Prerequisites
 
-- Java 21 or higher
+- Java 25 (Gradle downloads it automatically via the toolchain resolver if missing)
 - Docker and Docker Compose
 - Gradle (or use included wrapper)
 
