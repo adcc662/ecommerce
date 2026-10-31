@@ -8,10 +8,12 @@ import com.example.ecommerce.models.entity.User;
 import com.example.ecommerce.models.enums.UserRole;
 import com.example.ecommerce.repository.UserRepository;
 import com.example.ecommerce.security.JwtUtil;
+import com.example.ecommerce.security.LoginAttemptLimiter;
 import com.example.ecommerce.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
     @Override
     public AuthResponse register(RegisterRequest request) {
@@ -53,10 +56,17 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-        );
+    public AuthResponse login(LoginRequest request, String clientIp) {
+        loginAttemptLimiter.checkAllowed(request.getEmail(), clientIp);
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+            );
+        } catch (AuthenticationException ex) {
+            loginAttemptLimiter.recordFailure(request.getEmail(), clientIp);
+            throw ex;
+        }
+        loginAttemptLimiter.recordSuccess(request.getEmail(), clientIp);
 
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("User not found"));

@@ -1,6 +1,7 @@
 package com.example.ecommerce.controller;
 
 import com.example.ecommerce.config.SecurityConfig;
+import com.example.ecommerce.exception.TooManyRequestsException;
 import com.example.ecommerce.security.JwtAuthenticationFilter;
 import com.example.ecommerce.security.JwtUtil;
 import com.example.ecommerce.service.AuthService;
@@ -31,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -78,7 +80,7 @@ class SecurityAndErrorHandlingTest {
 
     @Test
     void wrongCredentialsReturn401() throws Exception {
-        when(authService.login(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+        when(authService.login(any(), any())).thenThrow(new BadCredentialsException("Bad credentials"));
 
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"a@example.com\",\"password\":\"wrongpass1\"}"))
@@ -88,11 +90,21 @@ class SecurityAndErrorHandlingTest {
 
     @Test
     void disabledAccountReturns401() throws Exception {
-        when(authService.login(any())).thenThrow(new DisabledException("disabled"));
+        when(authService.login(any(), any())).thenThrow(new DisabledException("disabled"));
 
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"a@example.com\",\"password\":\"wrongpass1\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void tooManyLoginAttemptsReturn429WithRetryAfter() throws Exception {
+        when(authService.login(any(), any())).thenThrow(new TooManyRequestsException("Too many", 300));
+
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"a@example.com\",\"password\":\"wrongpass1\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "300"));
     }
 
     @Test
