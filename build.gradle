@@ -50,3 +50,10 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// Local runs use the dev profile unless SPRING_PROFILES_ACTIVE is set.
+tasks.named('bootRun') {
+    if (!System.getenv('SPRING_PROFILES_ACTIVE')) {
+        environment 'SPRING_PROFILES_ACTIVE', 'dev'
+    }
+}
