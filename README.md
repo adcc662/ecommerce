@@ -9,7 +9,8 @@ A comprehensive e-commerce REST API built with Spring Boot 4.1, featuring JWT au
 - **Pagination Support** - Configurable pagination for all product listings
 - **PATCH Endpoints** - Partial updates for products and order status
 - **Flyway Migrations** - Version-controlled database schema management
-- **Singleton Pattern** - Thread-safe service implementations
+- **Login rate limiting** - Failed logins limited per email and IP
+- **Soft delete** - Deleting a product keeps order history
 - **Docker Compose** - Easy setup for PostgreSQL and Redis
 - **3NF Database** - 13 normalized tables with optimized indexes
 
@@ -32,15 +33,11 @@ A comprehensive e-commerce REST API built with Spring Boot 4.1, featuring JWT au
 - Docker and Docker Compose
 - Gradle (or use included wrapper)
 
-### 1. Start Docker Services
+### 1. Configure the environment
 
 ```bash
-docker-compose up -d
+cp .env.example .env   # then fill in POSTGRES_USER, POSTGRES_PASSWORD and JWT_SECRET
 ```
-
-This starts:
-- PostgreSQL on port 5432
-- Redis on port 6379
 
 ### 2. Run the Application
 
@@ -48,7 +45,22 @@ This starts:
 ./gradlew bootRun
 ```
 
-The API will be available at `http://localhost:8080`
+`bootRun` starts PostgreSQL and Redis from `compose.yaml` automatically and uses the `dev` profile,
+which provides a dev-only JWT secret so you do not need to export `JWT_SECRET` locally.
+The API is available at `http://localhost:8080`.
+
+To create an admin on first start, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12+ characters).
+An existing account with that email is never promoted.
+
+### 3. Run as a container
+
+```bash
+docker compose --profile app up -d --build
+```
+
+This builds the image and runs the app with PostgreSQL and Redis. The container uses the default
+(production) profile, so `JWT_SECRET` must be set in `.env`; it refuses to start without it.
+Health: `GET /actuator/health/readiness` (also used by the Docker `HEALTHCHECK`).
 
 ## Project Structure
 
@@ -68,6 +80,16 @@ src/main/java/com/example/ecommerce/
 ```
 
 ## API Documentation
+
+### Access rules
+
+| Who | Endpoints |
+|---|---|
+| Anyone | `POST /api/auth/**`, `GET /api/products/{id}`, `GET /api/products/slug/{slug}`, `GET /api/products/active`, `GET /api/products/search`, `GET /api/categories/**` |
+| Logged-in users | cart, orders, addresses |
+| `ADMIN` | `GET /api/products` (all, including inactive), product create/update/delete, category creation, order status updates |
+
+Failed logins are limited to 5 per email and IP (20 per email) every 15 minutes; further attempts return `429` with a `Retry-After` header.
 
 ### Authentication
 
@@ -138,10 +160,12 @@ GET /api/products
 GET /api/products?paginated=true&page=0&size=10&sortBy=price&sortDir=ASC
 ```
 
+Without `paginated=true`, list endpoints return at most 100 items.
+
 Query Parameters:
 - `paginated` - Enable pagination (true/false)
 - `page` - Page number (default: 0)
-- `size` - Items per page (default: 10)
+- `size` - Items per page (default: 10, max: 100)
 - `sortBy` - Sort field (default: id)
 - `sortDir` - Sort direction: ASC or DESC (default: ASC)
 
@@ -196,10 +220,52 @@ Content-Type: application/json
 
 Updatable fields: `name`, `description`, `slug`, `sku`, `price`, `discountPrice`, `stockQuantity`, `weight`, `dimensions`, `isActive`, `subcategoryId`
 
+Values are type-checked: `stockQuantity` must be an integer, `isActive` a boolean, prices numbers.
+`discountPrice` must be lower than `price`. Unknown fields return `400`.
+
 #### Delete Product
 ```http
 DELETE /api/products/{id}
 Authorization: Bearer {token}
+```
+
+Deactivates the product (it disappears from public reads). Order history is kept.
+
+### Categories
+
+```http
+GET  /api/categories                      # active categories with their subcategories
+GET  /api/categories/{id}/subcategories
+POST /api/categories                      # ADMIN
+POST /api/categories/{id}/subcategories   # ADMIN
+Content-Type: application/json
+
+{ "name": "Laptops", "slug": "laptops", "description": "optional" }
+```
+
+Slugs use lowercase letters, digits and hyphens.
+
+### Addresses
+
+Orders need a shipping and a billing address that belong to the user.
+
+```http
+GET    /api/addresses
+POST   /api/addresses
+PUT    /api/addresses/{id}
+DELETE /api/addresses/{id}     # 409 if an order uses it
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "addressType": "BOTH",
+  "streetAddress": "1 Main St",
+  "city": "Springfield",
+  "stateProvince": "IL",
+  "postalCode": "62701",
+  "country": "US",
+  "isDefault": true
+}
 ```
 
 ### Shopping Cart
@@ -283,16 +349,15 @@ Valid statuses: `PENDING`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `R
 Redis caching is automatically applied to product queries:
 
 ### Cached Operations
-- `getProductById(Long id)` - Cached by product ID
-- `getProductBySlug(String slug)` - Cached by slug
-- `getAllProducts(Pageable pageable)` - Cached by page parameters
-- `getActiveProducts(Pageable pageable)` - Cached by page parameters
-- `searchProductsByName(String keyword, Pageable pageable)` - Cached by keyword and page
+- `getProductById(Long id)` - key `id:{id}`
+- `getProductBySlug(String slug)` - key `slug:{slug}`
+
+Pages and searches are not cached, so every sort order and keyword is always correct.
 
 ### Cache Invalidation
-Cache is automatically cleared on:
-- `patchProduct()` - Clears all product cache entries
-- `deleteProduct()` - Clears all product cache entries
+The whole `products` cache is cleared on product create, update, patch and delete, and when an
+order is placed or its status changes (stock changes). If Redis is unavailable, reads fall back to
+the database.
 
 **Cache TTL:** 10 minutes
 
@@ -322,71 +387,30 @@ All tables include:
 
 ## Configuration
 
-### application.properties
+### Environment variables
 
-```properties
-# Database
-spring.datasource.url=jdbc:postgresql://localhost:5432/ecommerce
-spring.datasource.username=myuser
-spring.datasource.password=secret
+| Variable | Required | Purpose |
+|---|---|---|
+| `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | outside `bootRun` | PostgreSQL connection |
+| `JWT_SECRET` | yes (except `dev` profile) | HS256 signing key, 32+ characters |
+| `JWT_EXPIRATION_MS` | no (default 86400000) | Token lifetime |
+| `CORS_ALLOWED_ORIGINS` | no (default `http://localhost:3000`) | Allowed browser origins |
+| `REDIS_PASSWORD` | no | Redis password (compose enables `requirepass` when set) |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Initial admin account |
 
-# Redis
-spring.data.redis.host=localhost
-spring.data.redis.port=6379
-
-# JWT
-jwt.secret=${JWT_SECRET}
-jwt.expiration=${JWT_EXPIRATION_MS:86400000}
-
-# Server
-server.port=8080
-```
-
-Set `JWT_SECRET` in your local environment to a strong HS256-compatible secret before running the application. Registered users default to the `USER` role; product mutations and order status updates require `ADMIN`.
+Registered users default to the `USER` role. Behind a reverse proxy, `X-Forwarded-*` headers are
+trusted only from private-network addresses (`server.forward-headers-strategy=native`).
 
 ### Docker Compose Services
 
-```yaml
-services:
-  postgres:
-    image: postgres:latest
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: ecommerce
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: secret
+- `postgres` (16) and `redis` bound to `127.0.0.1`, with healthchecks
+- `app` (profile `app`): the containerized API on `127.0.0.1:8080`
 
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-```
+## Design Notes
 
-## Design Patterns
-
-### Singleton Pattern
-Service implementations use thread-safe double-checked locking:
-
-```java
-private static volatile ProductServiceImpl instance;
-
-public static ProductServiceImpl getInstance(
-    ProductRepository productRepository,
-    SubcategoryRepository subcategoryRepository) {
-    if (instance == null) {
-        synchronized (ProductServiceImpl.class) {
-            if (instance == null) {
-                instance = new ProductServiceImpl(
-                    productRepository,
-                    subcategoryRepository
-                );
-            }
-        }
-    }
-    return instance;
-}
-```
+- Services are Spring-managed singletons injected through constructors.
+- Checkout locks products in id order (`SELECT ... FOR UPDATE`) and decrements stock in the same transaction; cancelling an order restores it.
+- Products are soft-deleted to preserve order history.
 
 ## Development
 
@@ -473,10 +497,18 @@ docker-compose down -v
   "timestamp": "2025-01-15T10:30:00",
   "status": 404,
   "error": "Not Found",
-  "message": "Product not found",
-  "path": "/api/products/999"
+  "message": "Product not found"
 }
 ```
+
+| Status | When |
+|---|---|
+| 400 | Validation errors (with an `errors` map), malformed JSON, bad parameters |
+| 401 | Missing, invalid or expired token; wrong credentials |
+| 403 | Authenticated but not allowed |
+| 404 | Resource not found (or not owned by the user) |
+| 409 | Duplicate email, slug or SKU; deleting data still in use |
+| 429 | Too many failed logins |
 
 ## License
 

@@ -2,21 +2,20 @@
 
 ## 🚀 Iniciar la Aplicación
 
-### 1. Iniciar los servicios con Docker Compose
-```bash
-docker-compose up -d
-```
-
-Esto iniciará:
-- PostgreSQL en el puerto 5432
-- Redis en el puerto 6379
-
-### 2. Ejecutar la aplicación
+### 1. Ejecutar con Gradle
 ```bash
 ./gradlew bootRun
 ```
 
-La aplicación estará disponible en `http://localhost:8080`
+`bootRun` levanta PostgreSQL y Redis desde `compose.yaml` y usa el perfil `dev`, que incluye un
+secreto JWT solo para desarrollo. La aplicación estará disponible en `http://localhost:8080`.
+
+### 2. Ejecutar como contenedor
+```bash
+docker compose --profile app up -d --build
+```
+
+El contenedor usa el perfil por defecto (producción): `JWT_SECRET` debe estar en `.env` o no arranca.
 
 ## 📋 Endpoints Principales
 
@@ -164,10 +163,50 @@ Campos que puedes actualizar con PATCH:
 - `stockQuantity`, `weight`, `dimensions`
 - `isActive`, `subcategoryId`
 
+Los valores se validan por tipo: `stockQuantity` debe ser entero, `isActive` booleano y los precios numéricos.
+`discountPrice` debe ser menor que `price`. Un campo desconocido devuelve `400`.
+
 #### Eliminar Producto
 ```bash
 DELETE /api/products/1
 Authorization: Bearer {token}
+```
+
+Desactiva el producto (deja de aparecer en las consultas públicas) y conserva el historial de órdenes.
+
+### Categorías
+
+```bash
+GET  /api/categories                       # público
+GET  /api/categories/1/subcategories       # público
+POST /api/categories                       # ADMIN
+POST /api/categories/1/subcategories       # ADMIN
+Content-Type: application/json
+
+{ "name": "Laptops", "slug": "laptops" }
+```
+
+### Direcciones
+
+Una orden necesita direcciones de envío y facturación del propio usuario.
+
+```bash
+GET    /api/addresses
+POST   /api/addresses
+PUT    /api/addresses/1
+DELETE /api/addresses/1      # 409 si una orden la usa
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "addressType": "BOTH",
+  "streetAddress": "1 Main St",
+  "city": "Springfield",
+  "stateProvince": "IL",
+  "postalCode": "62701",
+  "country": "US",
+  "isDefault": true
+}
 ```
 
 ### Carrito de Compras
@@ -255,8 +294,10 @@ Estados válidos:
 ## 🔄 Características Implementadas
 
 ### ✅ Redis Caching
-- Los productos se cachean automáticamente
-- Cache invalidado al crear, actualizar o eliminar productos
+- Se cachean las consultas de un producto por ID y por slug
+- Las páginas y búsquedas no se cachean
+- El cache se invalida al modificar productos y cuando una orden cambia el stock
+- Si Redis falla, las lecturas usan la base de datos
 - TTL de cache: 10 minutos
 
 ### ✅ Paginación
@@ -278,9 +319,11 @@ Estados válidos:
 - Tokens con expiración de 24 horas
 - Incluir en header: `Authorization: Bearer {token}`
 
-### ✅ Singleton Pattern
-- Implementado en servicios principales
-- Thread-safe con double-checked locking
+### ✅ Seguridad
+- El catálogo (productos activos, búsqueda, categorías) es público
+- Errores de cliente con su código correcto: 400, 401, 403, 404, 409
+- Máximo 5 intentos fallidos de login por email e IP (20 por email) cada 15 minutos; luego `429` con `Retry-After`
+- Admin inicial con `ADMIN_EMAIL` y `ADMIN_PASSWORD` (nunca promueve una cuenta existente)
 
 ## 🗃️ Base de Datos
 
