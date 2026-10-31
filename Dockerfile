@@ -14,4 +14,7 @@ USER spring:spring
 WORKDIR /app
 COPY --from=builder /app/build/libs/*.jar app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# The JRE image has no curl/wget; bash's /dev/tcp is enough for a readiness probe.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --retries=5 \
+  CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /actuator/health/readiness HTTP/1.0\r\n\r\n" >&3 && grep -q "\"UP\"" <&3'
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]

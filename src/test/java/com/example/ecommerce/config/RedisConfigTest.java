@@ -39,6 +39,20 @@ class RedisConfigTest {
     }
 
     @Test
+    void cacheFailuresAreLoggedInsteadOfFailingTheRequest() {
+        var handler = new RedisConfig().errorHandler();
+        var cache = new org.springframework.cache.concurrent.ConcurrentMapCache("products");
+        RuntimeException redisDown = new RuntimeException("Redis down");
+
+        org.assertj.core.api.Assertions.assertThatCode(() -> {
+            handler.handleCacheGetError(redisDown, cache, "k");
+            handler.handleCachePutError(redisDown, cache, "k", "v");
+            handler.handleCacheEvictError(redisDown, cache, "k");
+            handler.handleCacheClearError(redisDown, cache);
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
     void rejectsTypesOutsideTheAllowlist() {
         byte[] payload = "{\"@class\":\"java.net.URL\",\"protocol\":\"http\",\"host\":\"evil.test\"}"
                 .getBytes(StandardCharsets.UTF_8);
