@@ -21,6 +21,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ShoppingCartServiceImpl implements ShoppingCartService {
 
+    private static final int MAX_QUANTITY = 1000;
+
     private final ShoppingCartRepository shoppingCartRepository;
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
@@ -28,24 +30,27 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Override
     @Transactional
     public CartItemResponse addToCart(String userEmail, Long productId, Integer quantity) {
-        if (quantity == null || quantity < 1) {
-            throw new IllegalArgumentException("Quantity must be at least 1");
-        }
+        validateQuantity(quantity);
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Product product = productRepository.findById(productId)
+                .filter(p -> Boolean.TRUE.equals(p.getIsActive()))
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         ShoppingCart existingCart = shoppingCartRepository.findByUserIdAndProductId(user.getId(), productId)
                 .orElse(null);
 
         if (existingCart != null) {
-            existingCart.setQuantity(existingCart.getQuantity() + quantity);
+            int newQuantity = existingCart.getQuantity() + quantity;
+            validateQuantity(newQuantity);
+            ensureInStock(product, newQuantity);
+            existingCart.setQuantity(newQuantity);
             return mapToResponse(shoppingCartRepository.save(existingCart));
         }
 
+        ensureInStock(product, quantity);
         ShoppingCart cart = ShoppingCart.builder()
                 .user(user)
                 .product(product)
@@ -58,9 +63,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Override
     @Transactional
     public CartItemResponse updateCartItem(String userEmail, Long productId, Integer quantity) {
-        if (quantity == null || quantity < 1) {
-            throw new IllegalArgumentException("Quantity must be at least 1");
-        }
+        validateQuantity(quantity);
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -68,6 +71,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         ShoppingCart cart = shoppingCartRepository.findByUserIdAndProductId(user.getId(), productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Cart item not found"));
 
+        ensureInStock(cart.getProduct(), quantity);
         cart.setQuantity(quantity);
         return mapToResponse(shoppingCartRepository.save(cart));
     }
@@ -102,6 +106,21 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         shoppingCartRepository.deleteByUserId(user.getId());
+    }
+
+    private static void validateQuantity(Integer quantity) {
+        if (quantity == null || quantity < 1) {
+            throw new IllegalArgumentException("Quantity must be at least 1");
+        }
+        if (quantity > MAX_QUANTITY) {
+            throw new IllegalArgumentException("Quantity must be at most " + MAX_QUANTITY);
+        }
+    }
+
+    private static void ensureInStock(Product product, int quantity) {
+        if (product.getStockQuantity() < quantity) {
+            throw new IllegalArgumentException("Insufficient stock for product: " + product.getName());
+        }
     }
 
     private CartItemResponse mapToResponse(ShoppingCart cart) {
