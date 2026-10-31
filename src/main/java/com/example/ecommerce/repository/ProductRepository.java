@@ -26,14 +26,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     Optional<Product> findByIdForUpdate(@Param("id") Long id);
 
     List<Product> findBySubcategoryId(Long subcategoryId);
-    List<Product> findByIsActiveTrue();
     Page<Product> findByIsActiveTrue(Pageable pageable);
 
     @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice AND p.isActive = true")
     List<Product> findByPriceRange(@Param("minPrice") BigDecimal minPrice, @Param("maxPrice") BigDecimal maxPrice);
-
-    @Query("SELECT p FROM Product p WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')) AND p.isActive = true")
-    List<Product> searchByName(@Param("keyword") String keyword);
 
     @Query("SELECT p FROM Product p WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')) AND p.isActive = true")
     Page<Product> searchByName(@Param("keyword") String keyword, Pageable pageable);

@@ -9,16 +9,21 @@ import com.example.ecommerce.models.enums.OrderStatus;
 import com.example.ecommerce.repository.*;
 import com.example.ecommerce.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
@@ -29,6 +34,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "products", allEntries = true)
     public OrderResponse createOrder(OrderRequest request, String userEmail) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -43,6 +49,13 @@ public class OrderServiceImpl implements OrderService {
             if (itemRequest == null || itemRequest.getQuantity() == null || itemRequest.getQuantity() < 1) {
                 throw new IllegalArgumentException("Quantity must be at least 1");
             }
+        }
+
+        // One line per product, locked in ascending id order so concurrent
+        // checkouts of the same products cannot deadlock.
+        Map<Long, Integer> quantities = new TreeMap<>();
+        for (var itemRequest : request.getItems()) {
+            quantities.merge(itemRequest.getProductId(), itemRequest.getQuantity(), Math::addExact);
         }
 
         BigDecimal subtotal = BigDecimal.ZERO;
@@ -61,29 +74,30 @@ public class OrderServiceImpl implements OrderService {
 
         order = orderRepository.save(order);
 
-        for (var itemRequest : request.getItems()) {
-            Product product = productRepository.findByIdForUpdate(itemRequest.getProductId())
+        for (Map.Entry<Long, Integer> line : quantities.entrySet()) {
+            int quantity = line.getValue();
+            Product product = productRepository.findByIdForUpdate(line.getKey())
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
             if (!Boolean.TRUE.equals(product.getIsActive())) {
                 throw new ResourceNotFoundException("Product not found");
             }
 
-            if (product.getStockQuantity() < itemRequest.getQuantity()) {
+            if (product.getStockQuantity() < quantity) {
                 throw new IllegalArgumentException("Insufficient stock for product: " + product.getName());
             }
 
-            product.setStockQuantity(product.getStockQuantity() - itemRequest.getQuantity());
+            product.setStockQuantity(product.getStockQuantity() - quantity);
             productRepository.save(product);
 
             BigDecimal unitPrice = product.getDiscountPrice() != null ? product.getDiscountPrice() : product.getPrice();
-            BigDecimal itemSubtotal = unitPrice.multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
+            BigDecimal itemSubtotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
             subtotal = subtotal.add(itemSubtotal);
 
             OrderItem orderItem = OrderItem.builder()
                     .order(order)
                     .product(product)
-                    .quantity(itemRequest.getQuantity())
+                    .quantity(quantity)
                     .unitPrice(unitPrice)
                     .discountAmount(BigDecimal.ZERO)
                     .subtotal(itemSubtotal)
@@ -114,13 +128,21 @@ public class OrderServiceImpl implements OrderService {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        return orderRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
-                .map(this::mapToResponse)
+        List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, List<OrderItem>> itemsByOrder = orderItemRepository
+                .findWithProductByOrderIdIn(orders.stream().map(Order::getId).toList()).stream()
+                .collect(Collectors.groupingBy(item -> item.getOrder().getId()));
+        return orders.stream()
+                .map(order -> mapToResponse(order, itemsByOrder.getOrDefault(order.getId(), List.of())))
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = "products", allEntries = true)
     public OrderResponse updateOrderStatus(Long id, String status) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
@@ -138,10 +160,27 @@ public class OrderServiceImpl implements OrderService {
                     "Invalid status transition from " + currentStatus + " to " + newStatus);
         }
 
+        if (newStatus == OrderStatus.CANCELLED) {
+            restoreStock(order);
+        }
+
         order.setOrderStatus(newStatus);
         orderRepository.save(order);
 
         return mapToResponse(order);
+    }
+
+    /** Puts the ordered quantities back; goods of a cancelled order never shipped. */
+    private void restoreStock(Order order) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId()).stream()
+                .sorted(Comparator.comparing(item -> item.getProduct().getId()))
+                .toList();
+        for (OrderItem item : items) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+            product.setStockQuantity(product.getStockQuantity() + item.getQuantity());
+            productRepository.save(product);
+        }
     }
 
     private String generateOrderNumber() {
@@ -149,7 +188,11 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private OrderResponse mapToResponse(Order order) {
-        List<OrderItemResponse> items = orderItemRepository.findByOrderId(order.getId()).stream()
+        return mapToResponse(order, orderItemRepository.findByOrderId(order.getId()));
+    }
+
+    private OrderResponse mapToResponse(Order order, List<OrderItem> orderItems) {
+        List<OrderItemResponse> items = orderItems.stream()
                 .map(item -> OrderItemResponse.builder()
                         .id(item.getId())
                         .productName(item.getProduct().getName())
