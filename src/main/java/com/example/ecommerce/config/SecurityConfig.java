@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .requestMatchers(PATCH, "/api/products/*").hasRole("ADMIN")
                         .requestMatchers(DELETE, "/api/products/*").hasRole("ADMIN")
                         .requestMatchers(PATCH, "/api/orders/*/status").hasRole("ADMIN")
+                        .requestMatchers(PATCH, "/api/payments/*/status").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
