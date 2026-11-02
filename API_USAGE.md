@@ -56,6 +56,14 @@ Respuesta:
 }
 ```
 
+#### Cerrar sesión en todos los dispositivos
+```bash
+POST /api/auth/logout-all
+Authorization: Bearer {token}
+```
+
+Devuelve `204` e invalida todos los tokens emitidos al usuario, incluido el usado en esta llamada.
+
 ### Productos
 
 #### Crear Producto (requiere autenticación)
@@ -290,6 +298,24 @@ Estados válidos:
 - `DELIVERED`
 - `CANCELLED`
 - `REFUNDED`
+
+### Pagos
+
+```bash
+GET   /api/payment-methods
+POST  /api/orders/1/payments          # { "paymentMethodId": 1 }
+GET   /api/orders/1/payments
+PATCH /api/payments/1/status?status=COMPLETED    # ADMIN: COMPLETED, FAILED, REFUNDED
+Authorization: Bearer {token}
+```
+
+- Solo se pagan órdenes `PENDING`, por su total. Una orden tiene como máximo un pago activo; otro intento devuelve `409`.
+- Un pago `COMPLETED` pasa la orden de `PENDING` a `PROCESSING`.
+- Los pagos se registran de forma manual (`MANUAL-...`); para usar un proveedor, implementar `PaymentGateway` como bean `@Primary`.
+
+### Impuestos y envío
+
+`totalAmount = subtotal + taxAmount + shippingCost`. Se configuran con `TAX_RATE` (fracción, p. ej. `0.0825`) y `SHIPPING_FEE` (monto fijo); ambos valen `0` por defecto.
 
 ## 🔄 Características Implementadas
 

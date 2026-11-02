@@ -86,8 +86,8 @@ src/main/java/com/example/ecommerce/
 | Who | Endpoints |
 |---|---|
 | Anyone | `POST /api/auth/**`, `GET /api/products/{id}`, `GET /api/products/slug/{slug}`, `GET /api/products/active`, `GET /api/products/search`, `GET /api/categories/**` |
-| Logged-in users | cart, orders, addresses |
-| `ADMIN` | `GET /api/products` (all, including inactive), product create/update/delete, category creation, order status updates |
+| Logged-in users | cart, orders, addresses, payments for their own orders, `GET /api/payment-methods`, `POST /api/auth/logout-all` |
+| `ADMIN` | `GET /api/products` (all, including inactive), product create/update/delete, category creation, order and payment status updates |
 
 Failed logins are limited to 5 per email and IP (20 per email) every 15 minutes; further attempts return `429` with a `Retry-After` header.
 
@@ -127,6 +127,14 @@ Response:
   "lastName": "Doe"
 }
 ```
+
+#### Log Out Everywhere
+```http
+POST /api/auth/logout-all
+Authorization: Bearer {token}
+```
+
+Returns `204` and invalidates every token issued to the user so far, including the one used for this call. Log in again to get a new token.
 
 ### Products
 
@@ -344,6 +352,25 @@ Authorization: Bearer {token}
 
 Valid statuses: `PENDING`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `REFUNDED`
 
+### Payments
+
+```http
+GET   /api/payment-methods
+POST  /api/orders/{orderId}/payments        # body: { "paymentMethodId": 1 }
+GET   /api/orders/{orderId}/payments
+PATCH /api/payments/{id}/status?status=COMPLETED   # ADMIN: COMPLETED, FAILED, REFUNDED
+Authorization: Bearer {token}
+```
+
+- Only `PENDING` orders can be paid, for their full total. An order has at most one active (`PENDING` or `COMPLETED`) payment; a second attempt returns `409`.
+- Status changes: `PENDING` → `COMPLETED` or `FAILED`; `COMPLETED` → `REFUNDED`.
+- A `COMPLETED` payment moves a `PENDING` order to `PROCESSING`. Refunds do not change the order; cancel it separately if needed.
+- Payments are recorded by `ManualPaymentGateway` (transaction ids `MANUAL-...`). To use a provider, implement `PaymentGateway` and register it as a `@Primary` bean.
+
+### Order totals
+
+`totalAmount = subtotal + taxAmount + shippingCost`, where `taxAmount = subtotal × TAX_RATE` (rounded half-up to cents) and `shippingCost = SHIPPING_FEE`. Both default to `0`.
+
 ## Caching Strategy
 
 Redis caching is automatically applied to product queries:
@@ -397,6 +424,8 @@ All tables include:
 | `CORS_ALLOWED_ORIGINS` | no (default `http://localhost:3000`) | Allowed browser origins |
 | `REDIS_PASSWORD` | no | Redis password (compose enables `requirepass` when set) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Initial admin account |
+| `TAX_RATE` | no (default 0) | Tax as a fraction of the subtotal, `0`–`1` (e.g. `0.0825`) |
+| `SHIPPING_FEE` | no (default 0) | Flat shipping fee per order, `>= 0` |
 
 Registered users default to the `USER` role. Behind a reverse proxy, `X-Forwarded-*` headers are
 trusted only from private-network addresses (`server.forward-headers-strategy=native`).
@@ -411,6 +440,8 @@ trusted only from private-network addresses (`server.forward-headers-strategy=na
 - Services are Spring-managed singletons injected through constructors.
 - Checkout locks products in id order (`SELECT ... FOR UPDATE`) and decrements stock in the same transaction; cancelling an order restores it.
 - Products are soft-deleted to preserve order history.
+- Tokens carry the user's token version; "log out everywhere" increments it, so older tokens stop working.
+- Payment creation locks the order row, and a partial unique index guarantees one active payment per order.
 
 ## Development
 
@@ -507,7 +538,7 @@ docker-compose down -v
 | 401 | Missing, invalid or expired token; wrong credentials |
 | 403 | Authenticated but not allowed |
 | 404 | Resource not found (or not owned by the user) |
-| 409 | Duplicate email, slug or SKU; deleting data still in use |
+| 409 | Duplicate email, slug or SKU; deleting data still in use; paying an order that is not pending or already has an active payment |
 | 429 | Too many failed logins |
 
 ## License
