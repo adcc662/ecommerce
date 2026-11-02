@@ -1,5 +1,6 @@
 package com.example.ecommerce.service.impl;
 
+import com.example.ecommerce.config.PricingProperties;
 import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.models.dto.request.OrderItemRequest;
 import com.example.ecommerce.models.dto.request.OrderRequest;
@@ -16,6 +17,7 @@ import com.example.ecommerce.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -47,6 +49,9 @@ class OrderServiceImplTest {
 
     @Mock
     private OrderItemRepository orderItemRepository;
+
+    @Spy
+    private PricingProperties pricing = new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO);
 
     @InjectMocks
     private OrderServiceImpl orderService;

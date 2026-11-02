@@ -1,5 +1,6 @@
 package com.example.ecommerce.service.impl;
 
+import com.example.ecommerce.config.PricingProperties;
 import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.models.dto.request.OrderRequest;
 import com.example.ecommerce.models.dto.response.OrderItemResponse;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +33,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final AddressRepository addressRepository;
     private final OrderItemRepository orderItemRepository;
+    private final PricingProperties pricing;
 
     @Override
     @Transactional
@@ -106,8 +109,12 @@ public class OrderServiceImpl implements OrderService {
             orderItemRepository.save(orderItem);
         }
 
+        BigDecimal tax = subtotal.multiply(pricing.taxRate()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal shipping = pricing.shippingFee().setScale(2, RoundingMode.HALF_UP);
         order.setSubtotal(subtotal);
-        order.setTotalAmount(subtotal);
+        order.setTaxAmount(tax);
+        order.setShippingCost(shipping);
+        order.setTotalAmount(subtotal.add(tax).add(shipping));
         orderRepository.save(order);
 
         return mapToResponse(order);

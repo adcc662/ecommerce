@@ -1,5 +1,6 @@
 package com.example.ecommerce.service.impl;
 
+import com.example.ecommerce.config.PricingProperties;
 import com.example.ecommerce.models.dto.request.OrderItemRequest;
 import com.example.ecommerce.models.dto.request.OrderRequest;
 import com.example.ecommerce.models.entity.Address;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.annotation.CacheEvict;
@@ -48,6 +50,9 @@ class OrderServiceFixesTest {
     private AddressRepository addressRepository;
     @Mock
     private OrderItemRepository orderItemRepository;
+
+    @Spy
+    private PricingProperties pricing = new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO);
 
     @InjectMocks
     private OrderServiceImpl orderService;
