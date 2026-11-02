@@ -1,6 +1,7 @@
 package com.example.ecommerce.service.impl;
 
 import com.example.ecommerce.exception.EmailAlreadyExistsException;
+import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.models.dto.request.LoginRequest;
 import com.example.ecommerce.models.dto.request.RegisterRequest;
 import com.example.ecommerce.models.dto.response.AuthResponse;
@@ -16,6 +17,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -45,7 +47,7 @@ public class AuthServiceImpl implements AuthService {
 
         userRepository.save(user);
 
-        String token = jwtUtil.generateToken(user.getEmail());
+        String token = jwtUtil.generateToken(user.getEmail(), user.getTokenVersion());
 
         return AuthResponse.builder()
                 .token(token)
@@ -53,6 +55,14 @@ public class AuthServiceImpl implements AuthService {
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void logoutEverywhere(String email) {
+        if (userRepository.incrementTokenVersion(email) == 0) {
+            throw new ResourceNotFoundException("User not found");
+        }
     }
 
     @Override
@@ -69,9 +79,9 @@ public class AuthServiceImpl implements AuthService {
         loginAttemptLimiter.recordSuccess(request.getEmail(), clientIp);
 
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        String token = jwtUtil.generateToken(user.getEmail());
+        String token = jwtUtil.generateToken(user.getEmail(), user.getTokenVersion());
 
         return AuthResponse.builder()
                 .token(token)

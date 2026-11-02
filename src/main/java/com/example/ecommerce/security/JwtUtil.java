@@ -18,6 +18,8 @@ import java.util.function.Function;
 @Getter
 public class JwtUtil {
 
+    static final String TOKEN_VERSION_CLAIM = "ver";
+
     @Value("${jwt.secret}")
     private String secret;
 
@@ -55,8 +57,19 @@ public class JwtUtil {
     }
 
     public String generateToken(String username) {
+        return generateToken(username, 0);
+    }
+
+    public String generateToken(String username, int tokenVersion) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put(TOKEN_VERSION_CLAIM, tokenVersion);
         return createToken(claims, username);
+    }
+
+    /** Tokens issued before versioning have no claim and count as version 0. */
+    public int extractTokenVersion(String token) {
+        Integer version = extractAllClaims(token).get(TOKEN_VERSION_CLAIM, Integer.class);
+        return version != null ? version : 0;
     }
 
     private String createToken(Map<String, Object> claims, String subject) {

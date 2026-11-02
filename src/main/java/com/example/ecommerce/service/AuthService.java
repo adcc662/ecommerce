@@ -7,4 +7,6 @@ import com.example.ecommerce.models.dto.response.AuthResponse;
 public interface AuthService {
     AuthResponse register(RegisterRequest request);
     AuthResponse login(LoginRequest request, String clientIp);
+
+    void logoutEverywhere(String email);
 }

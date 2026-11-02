@@ -49,6 +49,10 @@ public class User {
     @Builder.Default
     private UserRole role = UserRole.USER;
 
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private Integer tokenVersion = 0;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

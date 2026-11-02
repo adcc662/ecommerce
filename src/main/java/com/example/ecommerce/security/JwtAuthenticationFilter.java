@@ -41,6 +41,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    private static int currentTokenVersion(UserDetails userDetails) {
+        return userDetails instanceof AppUserDetails appUser ? appUser.getTokenVersion() : 0;
+    }
+
     /**
      * An invalid, expired or orphaned token leaves the request unauthenticated;
      * Spring Security then answers 401 for protected endpoints.
@@ -51,7 +55,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
             if (userDetails.isEnabled() && userDetails.isAccountNonLocked()
-                    && jwtUtil.validateToken(jwt, userDetails.getUsername())) {
+                    && jwtUtil.validateToken(jwt, userDetails.getUsername())
+                    && jwtUtil.extractTokenVersion(jwt) == currentTokenVersion(userDetails)) {
                 UsernamePasswordAuthenticationToken authenticationToken =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

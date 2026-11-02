@@ -10,6 +10,8 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
@@ -23,14 +25,14 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         UserRole role = user.getRole() != null ? user.getRole() : UserRole.USER;
 
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPasswordHash())
-                .authorities(new SimpleGrantedAuthority("ROLE_" + role.name()))
-                .accountExpired(false)
-                .accountLocked(!user.getIsActive())
-                .credentialsExpired(false)
-                .disabled(!user.getIsActive())
-                .build();
+        boolean active = Boolean.TRUE.equals(user.getIsActive());
+        int tokenVersion = user.getTokenVersion() != null ? user.getTokenVersion() : 0;
+
+        return new AppUserDetails(
+                user.getEmail(),
+                user.getPasswordHash(),
+                active,
+                List.of(new SimpleGrantedAuthority("ROLE_" + role.name())),
+                tokenVersion);
     }
 }

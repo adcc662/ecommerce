@@ -63,10 +63,28 @@ class AuthServiceImplTest {
 
     @Test
     void successfulLoginResetsCountersAndReturnsToken() {
-        when(userRepository.findByEmail("a@example.com")).thenReturn(Optional.of(User.builder().email("a@example.com").build()));
-        when(jwtUtil.generateToken("a@example.com")).thenReturn("token");
+        when(userRepository.findByEmail("a@example.com")).thenReturn(Optional.of(
+                User.builder().email("a@example.com").tokenVersion(4).build()));
+        when(jwtUtil.generateToken("a@example.com", 4)).thenReturn("token");
 
         assertThat(authService.login(REQUEST, "1.1.1.1").getToken()).isEqualTo("token");
         verify(loginAttemptLimiter).recordSuccess("a@example.com", "1.1.1.1");
+    }
+
+    @Test
+    void logoutEverywhereIncrementsTheTokenVersion() {
+        when(userRepository.incrementTokenVersion("a@example.com")).thenReturn(1);
+
+        authService.logoutEverywhere("a@example.com");
+
+        verify(userRepository).incrementTokenVersion("a@example.com");
+    }
+
+    @Test
+    void logoutEverywhereForUnknownUserReturnsNotFound() {
+        when(userRepository.incrementTokenVersion("ghost@example.com")).thenReturn(0);
+
+        assertThatThrownBy(() -> authService.logoutEverywhere("ghost@example.com"))
+                .isInstanceOf(com.example.ecommerce.exception.ResourceNotFoundException.class);
     }
 }
