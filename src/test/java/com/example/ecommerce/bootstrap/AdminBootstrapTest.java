@@ -65,4 +65,20 @@ class AdminBootstrapTest {
                 .isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(userRepository);
     }
+
+    @Test
+    void emailIsLowercasedIndependentlyOfDefaultLocale() {
+        java.util.Locale original = java.util.Locale.getDefault();
+        java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
+        try {
+            when(userRepository.findByEmail("admin@example.com")).thenReturn(Optional.empty());
+            when(passwordEncoder.encode("long-enough-password")).thenReturn("hash");
+
+            bootstrap(" ADMIN@EXAMPLE.COM ", "long-enough-password").run(null);
+
+            verify(userRepository).findByEmail("admin@example.com");
+        } finally {
+            java.util.Locale.setDefault(original);
+        }
+    }
 }

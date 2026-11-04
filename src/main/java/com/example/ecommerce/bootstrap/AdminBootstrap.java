@@ -11,6 +11,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
+
 /**
  * Creates the first admin from ADMIN_EMAIL / ADMIN_PASSWORD when both are set.
  * An existing account with that email is never promoted: someone could have
@@ -33,7 +35,7 @@ public class AdminBootstrap implements ApplicationRunner {
                           @Value("${app.admin.password:}") String password) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.email = email == null ? "" : email.trim().toLowerCase();
+        this.email = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
         this.password = password == null ? "" : password;
     }
 
