@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -137,10 +140,17 @@ class PaymentServiceImplTest {
                 .amount(order.getTotalAmount()).build();
     }
 
+    /** Stubs the lock-then-load path: payment id -> order id, locked order, then the payment. */
+    private void stub(Payment payment) {
+        lenient().when(paymentRepository.findOrderIdById(5L)).thenReturn(Optional.of(99L));
+        lenient().when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
+        lenient().when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment));
+    }
+
     @Test
     void completedPaymentMovesPendingOrderToProcessing() {
         Payment payment = payment(PaymentStatus.PENDING);
-        when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment));
+        stub(payment);
 
         paymentService.updatePaymentStatus(5L, "completed");
 
@@ -152,29 +162,94 @@ class PaymentServiceImplTest {
     void completedPaymentLeavesAnAlreadyAdvancedOrderAlone() {
         order.setOrderStatus(OrderStatus.SHIPPED);
         Payment payment = payment(PaymentStatus.PENDING);
-        when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment));
+        stub(payment);
 
         paymentService.updatePaymentStatus(5L, "COMPLETED");
 
         assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.SHIPPED);
     }
 
+    @Test
+    void statusChangeLocksTheOrderBeforeLoadingThePayment() {
+        stub(payment(PaymentStatus.PENDING));
+
+        paymentService.updatePaymentStatus(5L, "FAILED");
+
+        InOrder lockFirst = inOrder(orderRepository, paymentRepository);
+        lockFirst.verify(orderRepository).findByIdForUpdate(99L);
+        lockFirst.verify(paymentRepository).findById(5L);
+    }
+
+    // S1: a cancelled or refunded order cannot be paid
+
     @ParameterizedTest
-    @CsvSource({"PENDING,FAILED", "COMPLETED,REFUNDED"})
-    void allowedTransitions(PaymentStatus from, PaymentStatus to) {
-        Payment payment = payment(from);
-        when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment));
+    @EnumSource(value = OrderStatus.class, names = {"CANCELLED", "REFUNDED"})
+    void paymentOfClosedOrderCannotComplete(OrderStatus closed) {
+        order.setOrderStatus(closed);
+        Payment payment = payment(PaymentStatus.PENDING);
+        stub(payment);
 
-        paymentService.updatePaymentStatus(5L, to.name());
+        assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, "COMPLETED"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Order is " + closed + "; its payment cannot be completed");
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(order.getOrderStatus()).isEqualTo(closed);
+        verify(paymentRepository, never()).save(any());
+    }
 
-        assertThat(payment.getPaymentStatus()).isEqualTo(to);
+    @Test
+    void unknownPaymentIsNotFound() {
+        when(paymentRepository.findOrderIdById(5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, "COMPLETED"))
+                .isInstanceOf(ResourceNotFoundException.class).hasMessage("Payment not found");
+    }
+
+    // S2: refunding a payment refunds its delivered order
+
+    @Test
+    void refundingPaymentOfDeliveredOrderRefundsTheOrder() {
+        order.setOrderStatus(OrderStatus.DELIVERED);
+        Payment payment = payment(PaymentStatus.COMPLETED);
+        stub(payment);
+
+        paymentService.updatePaymentStatus(5L, "REFUNDED");
+
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.REFUNDED);
+        verify(orderRepository).save(order);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"PENDING", "PROCESSING", "SHIPPED"})
+    void refundingPaymentOfUndeliveredOrderIsRejected(OrderStatus status) {
+        order.setOrderStatus(status);
+        Payment payment = payment(PaymentStatus.COMPLETED);
+        stub(payment);
+
+        assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, "REFUNDED"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Only payments of delivered orders can be refunded; cancel the order instead");
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(order.getOrderStatus()).isEqualTo(status);
+    }
+
+    @Test
+    void failedPaymentLeavesOrderPending() {
+        Payment payment = payment(PaymentStatus.PENDING);
+        stub(payment);
+
+        paymentService.updatePaymentStatus(5L, "FAILED");
+
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.PENDING);
     }
 
     @ParameterizedTest
     @CsvSource({"PENDING,REFUNDED", "FAILED,COMPLETED", "REFUNDED,COMPLETED", "COMPLETED,PENDING", "PENDING,PENDING"})
     void rejectedTransitions(PaymentStatus from, PaymentStatus to) {
         Payment payment = payment(from);
-        when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment));
+        stub(payment);
 
         assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, to.name()))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -183,7 +258,7 @@ class PaymentServiceImplTest {
 
     @Test
     void unknownStatusIsRejectedWithCleanMessage() {
-        when(paymentRepository.findById(5L)).thenReturn(Optional.of(payment(PaymentStatus.PENDING)));
+        stub(payment(PaymentStatus.PENDING));
 
         assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, "PAID"))
                 .isInstanceOf(IllegalArgumentException.class)

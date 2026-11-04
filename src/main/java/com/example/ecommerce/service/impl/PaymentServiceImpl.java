@@ -33,6 +33,7 @@ import java.util.Set;
 public class PaymentServiceImpl implements PaymentService {
 
     private static final Set<PaymentStatus> ACTIVE = EnumSet.of(PaymentStatus.PENDING, PaymentStatus.COMPLETED);
+    private static final Set<OrderStatus> CLOSED_ORDERS = EnumSet.of(OrderStatus.CANCELLED, OrderStatus.REFUNDED);
 
     private final PaymentRepository paymentRepository;
     private final PaymentMethodRepository paymentMethodRepository;
@@ -93,9 +94,17 @@ public class PaymentServiceImpl implements PaymentService {
                 .toList();
     }
 
+    /**
+     * Locks the order before loading the payment, so a status change cannot race
+     * an order cancel or another payment update, and keeps the order in step.
+     */
     @Override
     @Transactional
     public PaymentResponse updatePaymentStatus(Long paymentId, String status) {
+        Long orderId = paymentRepository.findOrderIdById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
@@ -110,9 +119,20 @@ public class PaymentServiceImpl implements PaymentService {
             throw new IllegalArgumentException("Invalid payment status transition from " + current + " to " + newStatus);
         }
 
+        OrderStatus orderStatus = order.getOrderStatus();
+        if (newStatus == PaymentStatus.COMPLETED && CLOSED_ORDERS.contains(orderStatus)) {
+            throw new ConflictException("Order is " + orderStatus + "; its payment cannot be completed");
+        }
+        if (newStatus == PaymentStatus.REFUNDED && orderStatus != OrderStatus.DELIVERED) {
+            throw new ConflictException("Only payments of delivered orders can be refunded; cancel the order instead");
+        }
+
         payment.setPaymentStatus(newStatus);
         if (newStatus == PaymentStatus.COMPLETED) {
-            advanceOrder(payment.getOrder());
+            advanceOrder(order);
+        } else if (newStatus == PaymentStatus.REFUNDED) {
+            order.setOrderStatus(OrderStatus.REFUNDED);
+            orderRepository.save(order);
         }
         return mapToResponse(paymentRepository.save(payment));
     }

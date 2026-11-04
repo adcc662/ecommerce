@@ -364,7 +364,10 @@ Authorization: Bearer {token}
 
 - Only `PENDING` orders can be paid, for their full total. An order has at most one active (`PENDING` or `COMPLETED`) payment; a second attempt returns `409`.
 - Status changes: `PENDING` → `COMPLETED` or `FAILED`; `COMPLETED` → `REFUNDED`.
-- A `COMPLETED` payment moves a `PENDING` order to `PROCESSING`. Refunds do not change the order; cancel it separately if needed.
+- A `COMPLETED` payment moves a `PENDING` order to `PROCESSING`. A payment of a `CANCELLED` or `REFUNDED` order cannot be completed (`409`).
+- Refunding a payment is allowed only for a `DELIVERED` order, which then moves to `REFUNDED`; for earlier orders, cancel the order instead (`409` otherwise).
+- Cancelling an order fails its `PENDING` payments and refunds its `COMPLETED` ones; refunding an order refunds its `COMPLETED` payment.
+- Order and payment status changes lock the order row, so they cannot race each other.
 - Payments are recorded by `ManualPaymentGateway` (transaction ids `MANUAL-...`). To use a provider, implement `PaymentGateway` and register it as a `@Primary` bean.
 
 ### Order totals

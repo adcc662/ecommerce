@@ -7,6 +7,7 @@ import com.example.ecommerce.models.dto.response.OrderItemResponse;
 import com.example.ecommerce.models.dto.response.OrderResponse;
 import com.example.ecommerce.models.entity.*;
 import com.example.ecommerce.models.enums.OrderStatus;
+import com.example.ecommerce.models.enums.PaymentStatus;
 import com.example.ecommerce.repository.*;
 import com.example.ecommerce.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final AddressRepository addressRepository;
     private final OrderItemRepository orderItemRepository;
+    private final PaymentRepository paymentRepository;
     private final PricingProperties pricing;
 
     @Override
@@ -151,7 +154,8 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     @CacheEvict(value = "products", allEntries = true)
     public OrderResponse updateOrderStatus(Long id, String status) {
-        Order order = orderRepository.findById(id)
+        // Locked so a concurrent payment update cannot complete a payment of an order being cancelled
+        Order order = orderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
         OrderStatus newStatus;
@@ -170,6 +174,9 @@ public class OrderServiceImpl implements OrderService {
         if (newStatus == OrderStatus.CANCELLED) {
             restoreStock(order);
         }
+        if (newStatus == OrderStatus.CANCELLED || newStatus == OrderStatus.REFUNDED) {
+            settlePayments(order);
+        }
 
         order.setOrderStatus(newStatus);
         orderRepository.save(order);
@@ -187,6 +194,25 @@ public class OrderServiceImpl implements OrderService {
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
             product.setStockQuantity(product.getStockQuantity() + item.getQuantity());
             productRepository.save(product);
+        }
+    }
+
+    /** A closed order keeps no open money: pending payments fail, completed ones are refunded. */
+    private void settlePayments(Order order) {
+        List<Payment> changed = new ArrayList<>();
+        for (Payment payment : paymentRepository.findByOrderId(order.getId())) {
+            PaymentStatus settled = switch (payment.getPaymentStatus()) {
+                case PENDING -> PaymentStatus.FAILED;
+                case COMPLETED -> PaymentStatus.REFUNDED;
+                case FAILED, REFUNDED -> null;
+            };
+            if (settled != null) {
+                payment.setPaymentStatus(settled);
+                changed.add(payment);
+            }
+        }
+        if (!changed.isEmpty()) {
+            paymentRepository.saveAll(changed);
         }
     }
 

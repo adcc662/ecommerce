@@ -9,9 +9,12 @@ import com.example.ecommerce.models.entity.OrderItem;
 import com.example.ecommerce.models.entity.Product;
 import com.example.ecommerce.models.entity.User;
 import com.example.ecommerce.models.enums.OrderStatus;
+import com.example.ecommerce.models.enums.PaymentStatus;
+import com.example.ecommerce.models.entity.Payment;
 import com.example.ecommerce.repository.AddressRepository;
 import com.example.ecommerce.repository.OrderItemRepository;
 import com.example.ecommerce.repository.OrderRepository;
+import com.example.ecommerce.repository.PaymentRepository;
 import com.example.ecommerce.repository.ProductRepository;
 import com.example.ecommerce.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -50,6 +53,8 @@ class OrderServiceFixesTest {
     private AddressRepository addressRepository;
     @Mock
     private OrderItemRepository orderItemRepository;
+    @Mock
+    private PaymentRepository paymentRepository;
 
     @Spy
     private PricingProperties pricing = new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO);
@@ -87,7 +92,7 @@ class OrderServiceFixesTest {
         Order order = Order.builder().id(99L).orderStatus(OrderStatus.PENDING).build();
         OrderItem item = OrderItem.builder().order(order).product(product).quantity(3).unitPrice(BigDecimal.TEN)
                 .subtotal(BigDecimal.TEN).discountAmount(BigDecimal.ZERO).build();
-        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of(item));
         when(productRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(product));
 
@@ -100,13 +105,65 @@ class OrderServiceFixesTest {
     @Test
     void otherTransitionsDoNotTouchStock() {
         Order order = Order.builder().id(99L).orderStatus(OrderStatus.DELIVERED).build();
-        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
 
         orderService.updateOrderStatus(99L, "REFUNDED");
 
         verify(productRepository, never()).findByIdForUpdate(anyLong());
         verify(productRepository, never()).save(any());
+    }
+
+    // S2: order status changes carry their payments along
+
+    private static Payment payment(long id, Order order, PaymentStatus status) {
+        return Payment.builder().id(id).order(order).paymentStatus(status).amount(BigDecimal.TEN).build();
+    }
+
+    @Test
+    void cancellingOrderFailsPendingAndRefundsCompletedPayments() {
+        Order order = Order.builder().id(99L).orderStatus(OrderStatus.PROCESSING).build();
+        Payment pending = payment(1L, order, PaymentStatus.PENDING);
+        Payment completed = payment(2L, order, PaymentStatus.COMPLETED);
+        Payment failed = payment(3L, order, PaymentStatus.FAILED);
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
+        when(paymentRepository.findByOrderId(99L)).thenReturn(List.of(pending, completed, failed));
+
+        orderService.updateOrderStatus(99L, "CANCELLED");
+
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(pending.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(completed.getPaymentStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(failed.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
+        verify(paymentRepository).saveAll(List.of(pending, completed));
+    }
+
+    @Test
+    void refundingOrderRefundsCompletedPayment() {
+        Order order = Order.builder().id(99L).orderStatus(OrderStatus.DELIVERED).build();
+        Payment completed = payment(2L, order, PaymentStatus.COMPLETED);
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
+        when(paymentRepository.findByOrderId(99L)).thenReturn(List.of(completed));
+
+        orderService.updateOrderStatus(99L, "REFUNDED");
+
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.REFUNDED);
+        assertThat(completed.getPaymentStatus()).isEqualTo(PaymentStatus.REFUNDED);
+    }
+
+    @Test
+    void forwardTransitionsDoNotTouchPayments() {
+        Order order = Order.builder().id(99L).orderStatus(OrderStatus.PROCESSING).build();
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
+
+        orderService.updateOrderStatus(99L, "SHIPPED");
+
+        assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.SHIPPED);
+        verify(paymentRepository, never()).findByOrderId(anyLong());
+        verify(paymentRepository, never()).saveAll(any());
     }
 
     // Concurrency: duplicate lines merge, locks are taken in a stable order

@@ -153,7 +153,7 @@ class OrderServiceImplTest {
                 .totalAmount(BigDecimal.TEN)
                 .build();
 
-        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());
 
         orderService.updateOrderStatus(99L, "processing");
@@ -169,7 +169,7 @@ class OrderServiceImplTest {
                 .orderStatus(OrderStatus.DELIVERED)
                 .build();
 
-        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.updateOrderStatus(99L, "PENDING"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -185,7 +185,7 @@ class OrderServiceImplTest {
                 .orderStatus(OrderStatus.PENDING)
                 .build();
 
-        when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.updateOrderStatus(99L, "NOT_A_STATUS"))
                 .isInstanceOf(IllegalArgumentException.class)

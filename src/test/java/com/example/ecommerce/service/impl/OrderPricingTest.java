@@ -10,6 +10,7 @@ import com.example.ecommerce.models.entity.User;
 import com.example.ecommerce.repository.AddressRepository;
 import com.example.ecommerce.repository.OrderItemRepository;
 import com.example.ecommerce.repository.OrderRepository;
+import com.example.ecommerce.repository.PaymentRepository;
 import com.example.ecommerce.repository.ProductRepository;
 import com.example.ecommerce.repository.UserRepository;
 import jakarta.validation.Validation;
@@ -35,7 +36,7 @@ class OrderPricingTest {
 
     private Order placeOrder(String taxRate, String shippingFee, String unitPrice, int quantity) {
         OrderServiceImpl service = new OrderServiceImpl(orderRepository, userRepository, productRepository,
-                addressRepository, orderItemRepository,
+                addressRepository, orderItemRepository, mock(PaymentRepository.class),
                 new PricingProperties(new BigDecimal(taxRate), new BigDecimal(shippingFee)));
         User user = User.builder().id(10L).email("u@example.com").build();
         Address address = Address.builder().id(1L).user(user).build();
