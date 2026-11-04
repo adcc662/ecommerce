@@ -114,14 +114,14 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Invalid payment status: " + status);
         }
-        PaymentStatus current = payment.getPaymentStatus();
-        if (current == null || !current.canTransitionTo(newStatus)) {
-            throw new IllegalArgumentException("Invalid payment status transition from " + current + " to " + newStatus);
-        }
-
+        // Checked before the transition: cancelling already failed the payment, and the caller needs the 409
         OrderStatus orderStatus = order.getOrderStatus();
         if (newStatus == PaymentStatus.COMPLETED && CLOSED_ORDERS.contains(orderStatus)) {
             throw new ConflictException("Order is " + orderStatus + "; its payment cannot be completed");
+        }
+        PaymentStatus current = payment.getPaymentStatus();
+        if (current == null || !current.canTransitionTo(newStatus)) {
+            throw new IllegalArgumentException("Invalid payment status transition from " + current + " to " + newStatus);
         }
         if (newStatus == PaymentStatus.REFUNDED && orderStatus != OrderStatus.DELIVERED) {
             throw new ConflictException("Only payments of delivered orders can be refunded; cancel the order instead");

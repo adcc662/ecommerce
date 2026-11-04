@@ -198,6 +198,20 @@ class PaymentServiceImplTest {
     }
 
     @Test
+    void completingPaymentAfterOrderWasCancelledIsAConflict() {
+        // State left by cancelling the order: the pending payment was failed
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        Payment payment = payment(PaymentStatus.FAILED);
+        stub(payment);
+
+        assertThatThrownBy(() -> paymentService.updatePaymentStatus(5L, "COMPLETED"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Order is CANCELLED; its payment cannot be completed");
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
     void unknownPaymentIsNotFound() {
         when(paymentRepository.findOrderIdById(5L)).thenReturn(Optional.empty());
 
