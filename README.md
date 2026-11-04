@@ -89,7 +89,7 @@ src/main/java/com/example/ecommerce/
 | Logged-in users | cart, orders, addresses, payments for their own orders, `GET /api/payment-methods`, `POST /api/auth/logout-all` |
 | `ADMIN` | `GET /api/products` (all, including inactive), product create/update/delete, category creation, order and payment status updates |
 
-Failed logins are limited to 5 per email and IP (20 per email) every 15 minutes; further attempts return `429` with a `Retry-After` header.
+Failed logins are limited to 5 per email and IP (20 per email) every 15 minutes; further attempts return `429` with a `Retry-After` header. Counters are kept in Redis (emails stored as SHA-256 hashes), so all instances share them and they survive restarts. If Redis is unreachable, limiting fails open: logins keep working and a warning is logged.
 
 ### Authentication
 

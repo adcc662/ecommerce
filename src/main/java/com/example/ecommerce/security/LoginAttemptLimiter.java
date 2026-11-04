@@ -1,95 +1,124 @@
 package com.example.ecommerce.security;
 
 import com.example.ecommerce.exception.TooManyRequestsException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.time.Instant;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Limits failed logins per email+IP and per email within a fixed window.
  * The per-email limit caps brute force even when the client rotates IPs.
- * State is in memory, so each application instance counts separately.
+ * Counters live in Redis, so every instance shares them and they survive restarts.
+ * If Redis is unreachable the limiter fails open: logins keep working and a warning is logged.
  */
+@Slf4j
 @Component
 public class LoginAttemptLimiter {
 
     static final int MAX_FAILURES_PER_EMAIL_AND_IP = 5;
     static final int MAX_FAILURES_PER_EMAIL = 20;
     static final Duration WINDOW = Duration.ofMinutes(15);
-    private static final int CLEANUP_THRESHOLD = 10_000;
+    private static final String KEY_PREFIX = "login-fail:";
 
-    private record Window(Instant start, int failures) {
-    }
+    /** Increments a counter and starts its window on the first failure, atomically. */
+    private static final RedisScript<Long> INCREMENT = RedisScript.of("""
+            local failures = redis.call('INCR', KEYS[1])
+            if failures == 1 then
+              redis.call('PEXPIRE', KEYS[1], ARGV[1])
+            end
+            return failures
+            """, Long.class);
 
-    private final Map<String, Window> windows = new ConcurrentHashMap<>();
-    private final Clock clock;
+    private final StringRedisTemplate redis;
+    private final Duration window;
+    private final String keyPrefix;
 
     @Autowired
-    public LoginAttemptLimiter() {
-        this(Clock.systemUTC());
+    public LoginAttemptLimiter(StringRedisTemplate redis) {
+        this(redis, WINDOW, KEY_PREFIX);
     }
 
-    LoginAttemptLimiter(Clock clock) {
-        this.clock = clock;
+    LoginAttemptLimiter(StringRedisTemplate redis, Duration window, String keyPrefix) {
+        this.redis = redis;
+        this.window = window;
+        this.keyPrefix = keyPrefix;
     }
 
     public void checkAllowed(String email, String clientIp) {
-        Instant now = clock.instant();
-        long retryAfter = Math.max(
-                retryAfter(emailAndIpKey(email, clientIp), MAX_FAILURES_PER_EMAIL_AND_IP, now),
-                retryAfter(emailKey(email), MAX_FAILURES_PER_EMAIL, now));
+        long retryAfter;
+        try {
+            retryAfter = Math.max(
+                    retryAfter(emailAndIpKey(email, clientIp), MAX_FAILURES_PER_EMAIL_AND_IP),
+                    retryAfter(emailKey(email), MAX_FAILURES_PER_EMAIL));
+        } catch (DataAccessException ex) {
+            log.warn("Login rate limiter unavailable, allowing attempt: {}", ex.getMessage());
+            return;
+        }
         if (retryAfter > 0) {
             throw new TooManyRequestsException("Too many failed login attempts. Try again later.", retryAfter);
         }
     }
 
     public void recordFailure(String email, String clientIp) {
-        Instant now = clock.instant();
-        increment(emailAndIpKey(email, clientIp), now);
-        increment(emailKey(email), now);
-        if (windows.size() > CLEANUP_THRESHOLD) {
-            windows.values().removeIf(window -> isExpired(window, now));
+        String ttl = Long.toString(window.toMillis());
+        try {
+            redis.execute(INCREMENT, List.of(emailAndIpKey(email, clientIp)), ttl);
+            redis.execute(INCREMENT, List.of(emailKey(email)), ttl);
+        } catch (DataAccessException ex) {
+            log.warn("Login rate limiter unavailable, failure not counted: {}", ex.getMessage());
         }
     }
 
     public void recordSuccess(String email, String clientIp) {
-        windows.remove(emailAndIpKey(email, clientIp));
-        windows.remove(emailKey(email));
+        try {
+            redis.delete(List.of(emailAndIpKey(email, clientIp), emailKey(email)));
+        } catch (DataAccessException ex) {
+            log.warn("Login rate limiter unavailable, counters not cleared: {}", ex.getMessage());
+        }
     }
 
-    private void increment(String key, Instant now) {
-        windows.compute(key, (k, window) -> window == null || isExpired(window, now)
-                ? new Window(now, 1)
-                : new Window(window.start(), window.failures() + 1));
-    }
-
-    private long retryAfter(String key, int limit, Instant now) {
-        Window window = windows.get(key);
-        if (window == null || isExpired(window, now) || window.failures() < limit) {
+    /** Seconds until the window ends when the limit is reached, otherwise 0. */
+    private long retryAfter(String key, int limit) {
+        String failures = redis.opsForValue().get(key);
+        if (failures == null || Long.parseLong(failures) < limit) {
             return 0;
         }
-        return Math.max(1, Duration.between(now, window.start().plus(WINDOW)).toSeconds());
+        Long ttlMillis = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        if (ttlMillis == null || ttlMillis <= 0) {
+            // The window ended between the two reads (or the TTL is unknown): ask to retry shortly
+            return 1;
+        }
+        return Math.max(1, (ttlMillis + 999) / 1000);
     }
 
-    private static boolean isExpired(Window window, Instant now) {
-        return !now.isBefore(window.start().plus(WINDOW));
+    private String emailKey(String email) {
+        return keyPrefix + "email:" + hash(email);
     }
 
-    private static String emailKey(String email) {
-        return normalize(email);
+    private String emailAndIpKey(String email, String clientIp) {
+        return keyPrefix + "email-ip:" + hash(email) + ":" + clientIp;
     }
 
-    private static String emailAndIpKey(String email, String clientIp) {
-        return normalize(email) + "|" + clientIp;
-    }
-
-    private static String normalize(String email) {
-        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+    /** Keys carry a hash, not the address itself, so Redis holds no plain emails. */
+    private static String hash(String email) {
+        String normalized = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(normalized.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
     }
 }
