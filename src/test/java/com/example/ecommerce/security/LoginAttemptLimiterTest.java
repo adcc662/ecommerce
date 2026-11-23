@@ -156,4 +156,18 @@ class LoginAttemptLimiterTest {
             dead.destroy();
         }
     }
+
+    @Test
+    void clearFailuresUnblocksTheEmailFromEveryIp() {
+        fail(limiter, "a@example.com", "1.1.1.1", LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL_AND_IP);
+        fail(limiter, "a@example.com", "2.2.2.2", LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL_AND_IP);
+        fail(limiter, "b@example.com", "1.1.1.1", LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL_AND_IP);
+
+        limiter.clearFailures("A@Example.com");
+
+        assertThatCode(() -> limiter.checkAllowed("a@example.com", "1.1.1.1")).doesNotThrowAnyException();
+        assertThatCode(() -> limiter.checkAllowed("a@example.com", "2.2.2.2")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limiter.checkAllowed("b@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
 }

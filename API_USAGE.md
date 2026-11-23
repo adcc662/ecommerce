@@ -64,6 +64,31 @@ Authorization: Bearer {token}
 
 Devuelve `204` e invalida todos los tokens emitidos al usuario, incluido el usado en esta llamada.
 
+#### Olvidé mi contraseña
+```bash
+POST /api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "usuario@example.com"
+}
+```
+
+Siempre devuelve `202`, exista o no la cuenta. Si el email pertenece a un usuario activo, recibe un enlace a `PASSWORD_RESET_URL?token=...`. El token es de un solo uso y expira en 30 minutos; solicitar otro invalida el anterior. Máximo 3 solicitudes por email cada 15 minutos.
+
+#### Restablecer contraseña
+```bash
+POST /api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "token-del-enlace",
+  "newPassword": "nuevaPassword123"
+}
+```
+
+Devuelve `204`, invalida todos los tokens JWT emitidos al usuario y limpia sus intentos de login fallidos (levanta el bloqueo). Devuelve `400` con `"Invalid or expired reset token"` si el token no existe, ya se usó o expiró.
+
 ### Productos
 
 #### Crear Producto (requiere autenticación)

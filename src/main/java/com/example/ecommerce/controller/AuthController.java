@@ -1,7 +1,9 @@
 package com.example.ecommerce.controller;
 
+import com.example.ecommerce.models.dto.request.ForgotPasswordRequest;
 import com.example.ecommerce.models.dto.request.LoginRequest;
 import com.example.ecommerce.models.dto.request.RegisterRequest;
+import com.example.ecommerce.models.dto.request.ResetPasswordRequest;
 import com.example.ecommerce.models.dto.response.AuthResponse;
 import com.example.ecommerce.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,5 +36,18 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         return ResponseEntity.ok(authService.login(request, httpRequest.getRemoteAddr()));
+    }
+
+    /** Always 202, whether or not the email exists, so callers cannot probe for accounts. */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        authService.requestPasswordReset(request.getEmail());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request.getToken(), request.getNewPassword());
+        return ResponseEntity.noContent().build();
     }
 }

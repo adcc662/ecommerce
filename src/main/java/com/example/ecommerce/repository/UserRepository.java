@@ -18,4 +18,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying
     @Query("UPDATE User u SET u.tokenVersion = u.tokenVersion + 1 WHERE u.email = :email")
     int incrementTokenVersion(@Param("email") String email);
+
+    /**
+     * Sets the password and revokes every issued token in one atomic statement, so a concurrent
+     * "log out everywhere" can never lose its increment. Returns 0 when the user is gone or inactive.
+     */
+    @Modifying
+    @Query("UPDATE User u SET u.passwordHash = :passwordHash, u.tokenVersion = u.tokenVersion + 1 "
+            + "WHERE u.id = :id AND u.isActive = true")
+    int updatePasswordAndRevokeTokens(@Param("id") Long id, @Param("passwordHash") String passwordHash);
 }

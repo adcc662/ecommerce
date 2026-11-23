@@ -32,6 +32,13 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
 
+  # Catches every email the app sends. Inbox: http://localhost:8025
+  mailpit:
+    image: 'axllent/mailpit'
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
+
   # Containerized app. Only started with: docker compose --profile app up -d --build
   # (bootRun's Docker Compose support starts postgres and redis only).
   app:
@@ -55,6 +62,14 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - TAX_RATE=${TAX_RATE:-0}
       - SHIPPING_FEE=${SHIPPING_FEE:-0}
+      - MAIL_HOST=${MAIL_HOST:-mailpit}
+      - MAIL_PORT=${MAIL_PORT:-1025}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-false}
+      - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-false}
+      - MAIL_FROM=${MAIL_FROM:-no-reply@ecommerce.local}
+      - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
     ports:
       - '127.0.0.1:8080:8080'
 

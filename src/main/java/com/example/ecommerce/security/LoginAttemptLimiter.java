@@ -4,6 +4,8 @@ import com.example.ecommerce.exception.TooManyRequestsException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
@@ -12,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -84,6 +87,25 @@ public class LoginAttemptLimiter {
     public void recordSuccess(String email, String clientIp) {
         try {
             redis.delete(List.of(emailAndIpKey(email, clientIp), emailKey(email)));
+        } catch (DataAccessException ex) {
+            log.warn("Login rate limiter unavailable, counters not cleared: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * Clears every counter for the email, from all IPs (e.g. after a password reset proves ownership).
+     * Uses SCAN, not KEYS, so Redis is never blocked; this runs rarely.
+     */
+    public void clearFailures(String email) {
+        String hash = hash(email);
+        List<String> keys = new ArrayList<>();
+        keys.add(emailKey(email));
+        ScanOptions options = ScanOptions.scanOptions().match(keyPrefix + "email-ip:" + hash + ":*").count(1000).build();
+        try {
+            try (Cursor<String> cursor = redis.scan(options)) {
+                cursor.forEachRemaining(keys::add);
+            }
+            redis.delete(keys);
         } catch (DataAccessException ex) {
             log.warn("Login rate limiter unavailable, counters not cleared: {}", ex.getMessage());
         }

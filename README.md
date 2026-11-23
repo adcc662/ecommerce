@@ -136,6 +136,33 @@ Authorization: Bearer {token}
 
 Returns `204` and invalidates every token issued to the user so far, including the one used for this call. Log in again to get a new token.
 
+#### Forgot Password
+```http
+POST /api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+Always returns `202`, whether or not the email belongs to an account, so the endpoint cannot be used to find registered emails. If it belongs to an active user, they receive an email with a link to `PASSWORD_RESET_URL?token=...`. The token works once, expires after 30 minutes, and asking again replaces the previous one. Each email can request at most 3 resets every 15 minutes; extra requests are ignored silently.
+
+#### Reset Password
+```http
+POST /api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "token-from-the-email-link",
+  "newPassword": "newPassword123"
+}
+```
+
+Returns `204` and invalidates every token issued to the user so far, so anyone logged in with the old password is logged out. It also clears the user's failed-login counters, lifting any login lockout. Returns `400` with `"Invalid or expired reset token"` when the token is unknown, already used, or expired.
+
+Emails are sent by SMTP. Outside the `dev` profile, `MAIL_HOST`, `MAIL_FROM` and `PASSWORD_RESET_URL` are required and the app does not start without them; `MAIL_PORT` defaults to `587` with SMTP auth and STARTTLS on (`MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_SMTP_AUTH`, `MAIL_SMTP_STARTTLS`). Sending is best-effort, so the mail server is left out of `/actuator/health`. In development (`./gradlew bootRun`, `dev` profile), `compose.yaml` runs Mailpit, which catches every email: open http://localhost:8025 to read them.
+
 ### Products
 
 #### Create Product
