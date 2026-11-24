@@ -371,6 +371,18 @@ GET /api/orders/{id}
 Authorization: Bearer {token}
 ```
 
+#### Cancel My Unpaid Order
+```http
+POST /api/orders/{id}/cancel
+Authorization: Bearer {token}
+```
+
+Cancels the caller's own order while it is still `PENDING` (unpaid), returns its stock, and fails any payment in progress. Returns `409` once the order is paid; paid orders are cancelled by an admin.
+
+**Unpaid orders and stock:** checkout takes the stock right away, so unpaid orders are limited:
+- An order still `PENDING` after `ORDER_PENDING_TTL` (default `30m`) is cancelled automatically and its stock returns to sale. A background job checks every minute.
+- A customer may have at most `ORDER_MAX_PENDING_PER_USER` (default `3`) unpaid orders. Another checkout returns `409` with `"You have too many unpaid orders. Pay or cancel one before placing another."`
+
 #### Update Order Status
 ```http
 PATCH /api/orders/{id}/status?status=PROCESSING

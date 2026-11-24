@@ -1,6 +1,8 @@
 package com.example.ecommerce.service.impl;
 
+import com.example.ecommerce.config.OrderProperties;
 import com.example.ecommerce.config.PricingProperties;
+import com.example.ecommerce.exception.ConflictException;
 import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.models.dto.request.OrderRequest;
 import com.example.ecommerce.models.dto.response.OrderItemResponse;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -38,6 +41,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final PaymentRepository paymentRepository;
     private final PricingProperties pricing;
+    private final OrderProperties orderProperties;
 
     @Override
     @Transactional
@@ -45,6 +49,13 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse createOrder(OrderRequest request, String userEmail) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        // Unpaid orders hold stock; capping them stops one account from emptying the catalog
+        userRepository.lockForCheckout(user.getId());
+        if (orderRepository.countByUserIdAndOrderStatus(user.getId(), OrderStatus.PENDING)
+                >= orderProperties.maxPendingPerUser()) {
+            throw new ConflictException("You have too many unpaid orders. Pay or cancel one before placing another.");
+        }
 
         Address shippingAddress = addressRepository.findByIdAndUserId(request.getShippingAddressId(), user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shipping address not found"));
@@ -173,16 +184,55 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (newStatus == OrderStatus.CANCELLED) {
-            restoreStock(order);
+            cancel(order);
+        } else {
+            if (newStatus == OrderStatus.REFUNDED) {
+                settlePayments(order);
+            }
+            order.setOrderStatus(newStatus);
+            orderRepository.save(order);
         }
-        if (newStatus == OrderStatus.CANCELLED || newStatus == OrderStatus.REFUNDED) {
-            settlePayments(order);
-        }
-
-        order.setOrderStatus(newStatus);
-        orderRepository.save(order);
 
         return mapToResponse(order);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "products", allEntries = true)
+    public OrderResponse cancelMyOrder(Long id, String userEmail) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        // Locked so a payment completing at the same moment either wins (order no longer PENDING) or gets a 409
+        Order order = orderRepository.findByIdAndUserIdForUpdate(id, user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+        if (order.getOrderStatus() != OrderStatus.PENDING) {
+            throw new ConflictException("Only unpaid (PENDING) orders can be cancelled");
+        }
+        cancel(order);
+        return mapToResponse(order);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "products", allEntries = true)
+    public boolean expireUnpaidOrder(Long id, LocalDateTime cutoff) {
+        // Re-checked under the lock: the order may have been paid or cancelled since it was listed
+        Order order = orderRepository.findByIdForUpdate(id).orElse(null);
+        if (order == null || order.getOrderStatus() != OrderStatus.PENDING
+                || order.getCreatedAt() == null || !order.getCreatedAt().isBefore(cutoff)) {
+            return false;
+        }
+        cancel(order);
+        return true;
+    }
+
+    /** Cancels a locked order: returns its stock and settles its payments. */
+    private void cancel(Order order) {
+        restoreStock(order);
+        settlePayments(order);
+        order.setOrderStatus(OrderStatus.CANCELLED);
+        orderRepository.save(order);
     }
 
     /** Puts the ordered quantities back; goods of a cancelled order never shipped. */
