@@ -501,6 +501,8 @@ trusted only from private-network addresses (`server.forward-headers-strategy=na
 ./gradlew test
 ```
 
+Requires Docker; start the services first with `docker compose up -d`. No `.env` exports are needed: the full-application test (`EcommerceApplicationTests`) uses Spring Boot's Docker Compose support to connect to the Postgres and Redis from `compose.yaml` (starting them if they are not running), and the Redis-backed tests use the Redis on `localhost:6379`.
+
 ### Database Migrations
 Flyway migrations are located in `src/main/resources/db/migration/`
 
