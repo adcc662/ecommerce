@@ -359,6 +359,8 @@ Content-Type: application/json
 }
 ```
 
+An order can have at most 100 different products; more returns `400` with `"An order can have at most 100 different products"`.
+
 #### Get My Orders
 ```http
 GET /api/orders/my-orders

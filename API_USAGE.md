@@ -298,6 +298,8 @@ Content-Type: application/json
 }
 ```
 
+Una orden puede tener como máximo 100 productos distintos; si no, devuelve `400`.
+
 #### Obtener Mis Órdenes
 ```bash
 GET /api/orders/my-orders
