@@ -62,7 +62,6 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - TAX_RATE=${TAX_RATE:-0}
       - SHIPPING_FEE=${SHIPPING_FEE:-0}
-<<<<<<< HEAD
       - MAIL_HOST=${MAIL_HOST:-mailpit}
       - MAIL_PORT=${MAIL_PORT:-1025}
       - MAIL_USERNAME=${MAIL_USERNAME:-}
@@ -71,11 +70,9 @@ services:
       - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-false}
       - MAIL_FROM=${MAIL_FROM:-no-reply@ecommerce.local}
       - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
-=======
       - ORDER_PENDING_TTL=${ORDER_PENDING_TTL:-30m}
       - ORDER_MAX_PENDING_PER_USER=${ORDER_MAX_PENDING_PER_USER:-3}
       - ORDER_EXPIRY_CHECK_INTERVAL_MS=${ORDER_EXPIRY_CHECK_INTERVAL_MS:-60000}
->>>>>>> fix/unpaid-order-stock
     ports:
       - '127.0.0.1:8080:8080'
 
