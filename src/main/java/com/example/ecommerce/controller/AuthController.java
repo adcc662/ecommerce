@@ -38,7 +38,10 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request, httpRequest.getRemoteAddr()));
     }
 
-    /** Always 202, whether or not the email exists, so callers cannot probe for accounts. */
+    /**
+     * Always 202, whether or not the email exists. Note that register's 409 already reveals which emails
+     * have accounts (an accepted risk), so this mainly avoids leaking whether a reset email was sent.
+     */
     @PostMapping("/forgot-password")
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         authService.requestPasswordReset(request.getEmail());

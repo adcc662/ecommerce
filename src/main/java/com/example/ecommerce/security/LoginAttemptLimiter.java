@@ -21,8 +21,15 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Limits failed logins per email+IP and per email within a fixed window.
- * The per-email limit caps brute force even when the client rotates IPs.
+ * Limits failed logins within a fixed window, with three counters:
+ * <ul>
+ *   <li>per email+IP: one client guessing one account's password;</li>
+ *   <li>per email: brute force on one account even when the client rotates IPs;</li>
+ *   <li>per IP: password spraying, one client trying a common password against many accounts.</li>
+ * </ul>
+ * When the per-email or per-IP limit is reached, IPs that logged in successfully to that account before
+ * ("known IPs") keep working for that account, so failures from elsewhere, or from others sharing the IP,
+ * cannot lock the owner out of their usual device. The per email+IP limit still applies to known IPs.
  * Counters live in Redis, so every instance shares them and they survive restarts.
  * If Redis is unreachable the limiter fails open: logins keep working and a warning is logged.
  */
@@ -32,6 +39,8 @@ public class LoginAttemptLimiter {
 
     static final int MAX_FAILURES_PER_EMAIL_AND_IP = 5;
     static final int MAX_FAILURES_PER_EMAIL = 20;
+    static final int MAX_FAILURES_PER_IP = 50;
+    static final Duration KNOWN_IP_TTL = Duration.ofDays(30);
     static final Duration WINDOW = Duration.ofMinutes(15);
     private static final String KEY_PREFIX = "login-fail:";
 
@@ -62,9 +71,16 @@ public class LoginAttemptLimiter {
     public void checkAllowed(String email, String clientIp) {
         long retryAfter;
         try {
-            retryAfter = Math.max(
-                    retryAfter(emailAndIpKey(email, clientIp), MAX_FAILURES_PER_EMAIL_AND_IP),
-                    retryAfter(emailKey(email), MAX_FAILURES_PER_EMAIL));
+            retryAfter = retryAfter(emailAndIpKey(email, clientIp), MAX_FAILURES_PER_EMAIL_AND_IP);
+            // The per-email and per-IP limits stop attacks from many IPs and on many accounts. An IP this
+            // account logged in from before is exempt from both, so neither failures elsewhere nor a shared
+            // IP (office, NAT, proxy) blocked for spraying can lock the owner out of their usual device.
+            long sharedRetryAfter = Math.max(
+                    retryAfter(emailKey(email), MAX_FAILURES_PER_EMAIL),
+                    retryAfter(ipKey(clientIp), MAX_FAILURES_PER_IP));
+            if (sharedRetryAfter > 0 && !isKnownIp(email, clientIp)) {
+                retryAfter = Math.max(retryAfter, sharedRetryAfter);
+            }
         } catch (DataAccessException ex) {
             log.warn("Login rate limiter unavailable, allowing attempt: {}", ex.getMessage());
             return;
@@ -79,14 +95,22 @@ public class LoginAttemptLimiter {
         try {
             redis.execute(INCREMENT, List.of(emailAndIpKey(email, clientIp)), ttl);
             redis.execute(INCREMENT, List.of(emailKey(email)), ttl);
+            redis.execute(INCREMENT, List.of(ipKey(clientIp)), ttl);
         } catch (DataAccessException ex) {
             log.warn("Login rate limiter unavailable, failure not counted: {}", ex.getMessage());
         }
     }
 
+    /**
+     * Clears the account's counters and remembers the IP as known for this account.
+     * The per-IP counter is kept: logging in to one's own account must not reset a spraying count.
+     */
     public void recordSuccess(String email, String clientIp) {
         try {
             redis.delete(List.of(emailAndIpKey(email, clientIp), emailKey(email)));
+            String knownIps = knownIpsKey(email);
+            redis.opsForSet().add(knownIps, String.valueOf(clientIp));
+            redis.expire(knownIps, KNOWN_IP_TTL);
         } catch (DataAccessException ex) {
             log.warn("Login rate limiter unavailable, counters not cleared: {}", ex.getMessage());
         }
@@ -100,6 +124,8 @@ public class LoginAttemptLimiter {
         String hash = hash(email);
         List<String> keys = new ArrayList<>();
         keys.add(emailKey(email));
+        // A reset starts over: IPs that knew the old password lose their exemption
+        keys.add(knownIpsKey(email));
         ScanOptions options = ScanOptions.scanOptions().match(keyPrefix + "email-ip:" + hash + ":*").count(1000).build();
         try {
             try (Cursor<String> cursor = redis.scan(options)) {
@@ -123,6 +149,18 @@ public class LoginAttemptLimiter {
             return 1;
         }
         return Math.max(1, (ttlMillis + 999) / 1000);
+    }
+
+    private boolean isKnownIp(String email, String clientIp) {
+        return Boolean.TRUE.equals(redis.opsForSet().isMember(knownIpsKey(email), String.valueOf(clientIp)));
+    }
+
+    private String ipKey(String clientIp) {
+        return keyPrefix + "ip:" + clientIp;
+    }
+
+    private String knownIpsKey(String email) {
+        return keyPrefix + "known-ips:" + hash(email);
     }
 
     private String emailKey(String email) {

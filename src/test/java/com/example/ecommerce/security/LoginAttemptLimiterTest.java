@@ -134,7 +134,8 @@ class LoginAttemptLimiterTest {
         limiter.recordFailure("a@example.com", "1.1.1.1");
 
         Set<String> keys = redis.keys(prefix + "*");
-        assertThat(keys).hasSize(2).noneMatch(key -> key.contains("a@example.com"));
+        // per email+IP, per email and per IP
+        assertThat(keys).hasSize(3).noneMatch(key -> key.contains("a@example.com"));
         for (String key : keys) {
             assertThat(redis.getExpire(key)).isBetween(1L, LoginAttemptLimiter.WINDOW.toSeconds());
         }
@@ -168,6 +169,89 @@ class LoginAttemptLimiterTest {
         assertThatCode(() -> limiter.checkAllowed("a@example.com", "1.1.1.1")).doesNotThrowAnyException();
         assertThatCode(() -> limiter.checkAllowed("a@example.com", "2.2.2.2")).doesNotThrowAnyException();
         assertThatThrownBy(() -> limiter.checkAllowed("b@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    // Password spraying: one IP trying one password against many accounts
+
+    @Test
+    void oneIpIsBlockedAfterTooManyFailuresAcrossEmails() {
+        for (int i = 0; i < LoginAttemptLimiter.MAX_FAILURES_PER_IP; i++) {
+            limiter.recordFailure("user" + i + "@example.com", "1.1.1.1");
+        }
+
+        assertThatThrownBy(() -> limiter.checkAllowed("someone-new@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class)
+                .hasMessage("Too many failed login attempts. Try again later.");
+        assertThatCode(() -> limiter.checkAllowed("someone-new@example.com", "2.2.2.2")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void aSuccessfulLoginDoesNotResetThePerIpCounter() {
+        for (int i = 0; i < LoginAttemptLimiter.MAX_FAILURES_PER_IP - 1; i++) {
+            limiter.recordFailure("user" + i + "@example.com", "1.1.1.1");
+        }
+        limiter.recordSuccess("attacker-own-account@example.com", "1.1.1.1");
+        limiter.recordFailure("one-more@example.com", "1.1.1.1");
+
+        assertThatThrownBy(() -> limiter.checkAllowed("someone-new@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    // Lockout abuse: failures from other IPs must not lock the owner out of their usual device
+
+    @Test
+    void lockedAccountStillLogsInFromAnIpThatSucceededBefore() {
+        limiter.recordSuccess("a@example.com", "1.1.1.1");
+        for (int i = 0; i < LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL; i++) {
+            limiter.recordFailure("a@example.com", "10.0.0." + i);
+        }
+
+        assertThatCode(() -> limiter.checkAllowed("a@example.com", "1.1.1.1")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limiter.checkAllowed("a@example.com", "9.9.9.9"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void knownIpIsStillLimitedByItsOwnFailures() {
+        limiter.recordSuccess("a@example.com", "1.1.1.1");
+        fail(limiter, "a@example.com", "1.1.1.1", LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL_AND_IP);
+
+        assertThatThrownBy(() -> limiter.checkAllowed("a@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void knownIpsAreRememberedPerEmailForAMonthWithoutThePlainEmail() {
+        limiter.recordSuccess("a@example.com", "1.1.1.1");
+
+        Set<String> keys = redis.keys(prefix + "*");
+        assertThat(keys).hasSize(1).noneMatch(key -> key.contains("a@example.com"));
+        assertThat(redis.getExpire(keys.iterator().next()))
+                .isBetween(LoginAttemptLimiter.KNOWN_IP_TTL.toSeconds() - 5, LoginAttemptLimiter.KNOWN_IP_TTL.toSeconds());
+    }
+
+    @Test
+    void sharedIpBlockedForSprayingStillLetsAccountsThatLoggedInFromItBefore() {
+        limiter.recordSuccess("colleague@example.com", "1.1.1.1");
+        for (int i = 0; i < LoginAttemptLimiter.MAX_FAILURES_PER_IP; i++) {
+            limiter.recordFailure("user" + i + "@example.com", "1.1.1.1");
+        }
+
+        assertThatCode(() -> limiter.checkAllowed("colleague@example.com", "1.1.1.1")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limiter.checkAllowed("victim@example.com", "1.1.1.1"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void clearFailuresAlsoForgetsKnownIps() {
+        limiter.recordSuccess("a@example.com", "1.1.1.1");
+        limiter.clearFailures("a@example.com");
+        for (int i = 0; i < LoginAttemptLimiter.MAX_FAILURES_PER_EMAIL; i++) {
+            limiter.recordFailure("a@example.com", "10.0.0." + i);
+        }
+
+        assertThatThrownBy(() -> limiter.checkAllowed("a@example.com", "1.1.1.1"))
                 .isInstanceOf(TooManyRequestsException.class);
     }
 }

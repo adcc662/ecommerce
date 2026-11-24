@@ -385,7 +385,7 @@ Authorization: Bearer {token}
 ### ✅ Seguridad
 - El catálogo (productos activos, búsqueda, categorías) es público
 - Errores de cliente con su código correcto: 400, 401, 403, 404, 409
-- Máximo 5 intentos fallidos de login por email e IP (20 por email) cada 15 minutos; luego `429` con `Retry-After`
+- Máximo 5 intentos fallidos de login por email e IP, 20 por email y 50 por IP cada 15 minutos; luego `429` con `Retry-After`. Las IPs desde las que una cuenta inició sesión con éxito en los últimos 30 días quedan exentas de los límites por email y por IP para esa cuenta
 - Admin inicial con `ADMIN_EMAIL` y `ADMIN_PASSWORD` (nunca promueve una cuenta existente)
 
 ## 🗃️ Base de Datos

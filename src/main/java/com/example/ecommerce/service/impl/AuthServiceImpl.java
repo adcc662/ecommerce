@@ -100,7 +100,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void requestPasswordReset(String email) {
-        // Limit first, for every email, so the response cannot reveal which accounts exist
+        // Limit first, for every email, so the endpoint behaves the same whether or not the account exists
         if (!passwordResetTokenStore.allowRequest(email)) {
             log.info("Password reset request limit reached, request ignored");
             return;

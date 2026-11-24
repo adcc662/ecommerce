@@ -9,7 +9,7 @@ A comprehensive e-commerce REST API built with Spring Boot 4.1, featuring JWT au
 - **Pagination Support** - Configurable pagination for all product listings
 - **PATCH Endpoints** - Partial updates for products and order status
 - **Flyway Migrations** - Version-controlled database schema management
-- **Login rate limiting** - Failed logins limited per email and IP
+- **Login rate limiting** - Failed logins limited per email and IP, per email, and per IP
 - **Soft delete** - Deleting a product keeps order history
 - **Docker Compose** - Easy setup for PostgreSQL and Redis
 - **3NF Database** - 13 normalized tables with optimized indexes
@@ -89,7 +89,7 @@ src/main/java/com/example/ecommerce/
 | Logged-in users | cart, orders, addresses, payments for their own orders, `GET /api/payment-methods`, `POST /api/auth/logout-all` |
 | `ADMIN` | `GET /api/products` (all, including inactive), product create/update/delete, category creation, order and payment status updates |
 
-Failed logins are limited to 5 per email and IP (20 per email) every 15 minutes; further attempts return `429` with a `Retry-After` header. Counters are kept in Redis (emails stored as SHA-256 hashes), so all instances share them and they survive restarts. If Redis is unreachable, limiting fails open: logins keep working and a warning is logged.
+Failed logins are limited every 15 minutes to 5 per email and IP, 20 per email, and 50 per IP (which stops password spraying across many accounts); further attempts return `429` with a `Retry-After` header. IPs that logged in to an account successfully in the last 30 days are exempt from the per-email and per-IP limits for that account, so neither failures from elsewhere nor a shared IP (office, NAT) blocked for spraying can lock the owner out. A password reset clears the account's counters and its known IPs. Behind a reverse proxy, set `server.tomcat.remoteip.internal-proxies` to the proxy's address; otherwise every client appears to come from the proxy's IP and the per-IP limit applies to all of them. Counters are kept in Redis (emails stored as SHA-256 hashes), so all instances share them and they survive restarts. If Redis is unreachable, limiting fails open: logins keep working and a warning is logged.
 
 ### Authentication
 
@@ -106,6 +106,8 @@ Content-Type: application/json
   "phone": "1234567890"
 }
 ```
+
+Returns `409` with `"Email already exists"` when the email is taken. This reveals whether an email has an account; it is an accepted risk, kept for a clearer sign-up experience. Login is rate limited (see above), which limits what an attacker can do with a list of known emails.
 
 #### Login
 ```http
@@ -146,7 +148,7 @@ Content-Type: application/json
 }
 ```
 
-Always returns `202`, whether or not the email belongs to an account, so the endpoint cannot be used to find registered emails. If it belongs to an active user, they receive an email with a link to `PASSWORD_RESET_URL?token=...`. The token works once, expires after 30 minutes, and asking again replaces the previous one. Each email can request at most 3 resets every 15 minutes; extra requests are ignored silently.
+Always returns `202`, whether or not the email belongs to an account. If it belongs to an active user, they receive an email with a link to `PASSWORD_RESET_URL?token=...`. The token works once, expires after 30 minutes, and asking again replaces the previous one. Each email can request at most 3 resets every 15 minutes; extra requests are ignored silently.
 
 #### Reset Password
 ```http
