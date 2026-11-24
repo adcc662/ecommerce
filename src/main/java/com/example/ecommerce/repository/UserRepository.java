@@ -12,6 +12,15 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
+
+    /**
+     * Locks the user's row until the transaction ends, so one customer's checkouts run one at a time
+     * and the unpaid-order cap cannot be bypassed with parallel requests.
+     * NO KEY UPDATE still serialises checkouts but, unlike FOR UPDATE, does not block inserts that
+     * reference the user (addresses, orders) or other sessions' foreign-key checks.
+     */
+    @Query(value = "SELECT 1 FROM users WHERE id = :id FOR NO KEY UPDATE", nativeQuery = true)
+    Integer lockForCheckout(@Param("id") Long id);
     boolean existsByEmail(String email);
 
     /** Atomic increment, so concurrent "log out everywhere" calls never lose an update. */

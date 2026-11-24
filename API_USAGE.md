@@ -285,6 +285,16 @@ GET /api/orders/1
 Authorization: Bearer {token}
 ```
 
+#### Cancelar mi orden sin pagar
+```bash
+POST /api/orders/1/cancel
+Authorization: Bearer {token}
+```
+
+Cancela una orden propia mientras sigue `PENDING` (sin pagar) y devuelve su stock. Devuelve `409` si la orden ya está pagada.
+
+Las órdenes sin pagar se cancelan automáticamente tras `ORDER_PENDING_TTL` (por defecto `30m`) y su stock vuelve a la venta. Cada cliente puede tener como máximo `ORDER_MAX_PENDING_PER_USER` (por defecto `3`) órdenes sin pagar; si no, el checkout devuelve `409`.
+
 #### Actualizar Estado de Orden (PATCH)
 ```bash
 PATCH /api/orders/1/status?status=PROCESSING

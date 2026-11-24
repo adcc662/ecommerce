@@ -38,7 +38,8 @@ class OrderStatusLocaleTest {
         Locale.setDefault(Locale.forLanguageTag("tr-TR"));
         OrderServiceImpl service = new OrderServiceImpl(orderRepository, mock(UserRepository.class),
                 mock(ProductRepository.class), mock(AddressRepository.class), orderItemRepository,
-                mock(PaymentRepository.class), new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO));
+                mock(PaymentRepository.class), new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO),
+                new com.example.ecommerce.config.OrderProperties(java.time.Duration.ofMinutes(30), 3));
         Order order = Order.builder().id(99L).orderStatus(OrderStatus.PROCESSING).build();
         when(orderRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId(99L)).thenReturn(List.of());

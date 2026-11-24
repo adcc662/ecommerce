@@ -52,6 +52,9 @@ class OrderServiceImplTest {
 
     @Spy
     private PricingProperties pricing = new PricingProperties(BigDecimal.ZERO, BigDecimal.ZERO);
+    @org.mockito.Spy
+    private com.example.ecommerce.config.OrderProperties orderProperties =
+            new com.example.ecommerce.config.OrderProperties(java.time.Duration.ofMinutes(30), 3);
 
     @InjectMocks
     private OrderServiceImpl orderService;

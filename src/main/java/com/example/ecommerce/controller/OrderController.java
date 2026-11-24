@@ -40,6 +40,12 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getUserOrders(userEmail));
     }
 
+    /** Cancels the caller's unpaid order and returns its stock; 409 once the order is paid. */
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<OrderResponse> cancelMyOrder(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(orderService.cancelMyOrder(id, authentication.getName()));
+    }
+
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<OrderResponse> updateOrderStatus(

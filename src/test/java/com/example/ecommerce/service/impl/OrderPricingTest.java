@@ -37,7 +37,8 @@ class OrderPricingTest {
     private Order placeOrder(String taxRate, String shippingFee, String unitPrice, int quantity) {
         OrderServiceImpl service = new OrderServiceImpl(orderRepository, userRepository, productRepository,
                 addressRepository, orderItemRepository, mock(PaymentRepository.class),
-                new PricingProperties(new BigDecimal(taxRate), new BigDecimal(shippingFee)));
+                new PricingProperties(new BigDecimal(taxRate), new BigDecimal(shippingFee)),
+                new com.example.ecommerce.config.OrderProperties(java.time.Duration.ofMinutes(30), 3));
         User user = User.builder().id(10L).email("u@example.com").build();
         Address address = Address.builder().id(1L).user(user).build();
         Product product = Product.builder().id(3L).name("P").price(new BigDecimal(unitPrice))
